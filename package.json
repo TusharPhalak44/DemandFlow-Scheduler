@@ -2,6 +2,10 @@
   "name": "demandflow-scheduler",
   "version": "1.0.0",
   "description": "DemandFlow Scheduler - Meeting Calendar Booking & Management System",
+  "workspaces": [
+    "client",
+    "server"
+  ],
   "scripts": {
     "install:all": "npm install && npm --prefix server install && npm --prefix client install",
     "dev:server": "npm --prefix server run dev",
