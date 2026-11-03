@@ -1,7 +1,7 @@
 {
-  "name": "meeting-calendar-system",
+  "name": "demandflow-scheduler",
   "version": "1.0.0",
-  "description": "Meeting Calendar Booking & Management System",
+  "description": "DemandFlow Scheduler - Meeting Calendar Booking & Management System",
   "scripts": {
     "install:all": "npm install && npm --prefix server install && npm --prefix client install",
     "dev:server": "npm --prefix server run dev",
@@ -9,9 +9,9 @@
     "build:server": "npm --prefix server run build",
     "build:client": "npm --prefix client run build",
     "build": "npm run build:server && npm run build:client",
-    "dev": "concurrently -n \"SERVER,CLIENT\" -c \"blue,green\" \"npm run dev:server\" \"npm run dev:client\""
+    "dev": "concurrently -k -n \"SERVER,CLIENT\" -c \"blue,magenta\" \"npm run dev:server\" \"npm run dev:client\""
   },
-  "devDependencies": {
+  "dependencies": {
     "concurrently": "^9.1.2"
   }
 }
