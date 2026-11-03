@@ -17,5 +17,13 @@
   },
   "dependencies": {
     "concurrently": "^9.1.2"
+  },
+  "allowScripts": {
+    "esbuild": true,
+    "esbuild@0.25.12": true,
+    "esbuild@0.28.2": true,
+    "prisma": true,
+    "@prisma/client": true,
+    "@prisma/engines": true
   }
 }
