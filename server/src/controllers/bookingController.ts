@@ -46,8 +46,13 @@ export class BookingController {
 
       const booking = await BookingEngine.createBooking({
         ...parsed,
+        agentName: parsed.agentName,
+        prospectEmail: parsed.prospectEmail,
+        slotStartUtc: parsed.slotStartUtc,
+        slotEndUtc: parsed.slotEndUtc,
+        bookedTimezone: parsed.bookedTimezone,
         ipAddress: req.ip,
-      });
+      } as any);
 
       res.status(201).json({
         message: 'Meeting confirmed successfully!',

@@ -87,7 +87,7 @@ export class SettingsController {
               startTime: wh.startTime,
               endTime: wh.endTime,
             },
-            create: wh,
+            create: wh as any,
           })
         )
       );
