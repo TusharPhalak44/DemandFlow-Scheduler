@@ -69,13 +69,21 @@ CREATE DATABASE IF NOT EXISTS meeting_calendar CHARACTER SET utf8mb4 COLLATE utf
 ```
 
 ### 2. Environment Configuration
-Check `server/.env`:
+Check `server/.env` (or configure in Vercel project environment variables):
 ```env
 PORT=5000
-DATABASE_URL="mysql://root:@127.0.0.1:3306/meeting_calendar"
+
+# Database Credentials (no manual URL encoding required)
+DB_HOST="auth-db1274.hstgr.io"
+DB_PORT=3306
+DB_USER="u449458970_Scheduler"
+DB_PASSWORD="your_password"
+DB_NAME="u449458970_Scheduler"
+
 JWT_SECRET="meeting_calendar_secret_jwt_key_2026_super_secure"
 FRONTEND_URL="http://localhost:5173"
 ```
+
 
 ### 3. Install Dependencies & Seed Database
 ```bash
