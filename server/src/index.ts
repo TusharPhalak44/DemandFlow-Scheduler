@@ -50,10 +50,12 @@ app.use('/api/admin', adminRoutes);
 // Centralized error handling middleware
 app.use(errorHandler);
 
-// Start server
-app.listen(Number(PORT), '0.0.0.0', () => {
-  console.log(`🚀 Meeting Calendar Server running on port ${PORT}`);
-  console.log(`📡 Health Check: http://localhost:${PORT}/api/health`);
-});
+// Start server locally (on Vercel serverless, app is exported directly)
+if (!process.env.VERCEL) {
+  app.listen(Number(PORT), '0.0.0.0', () => {
+    console.log(`🚀 Meeting Calendar Server running on port ${PORT}`);
+    console.log(`📡 Health Check: http://localhost:${PORT}/api/health`);
+  });
+}
 
 export default app;
