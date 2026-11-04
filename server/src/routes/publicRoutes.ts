@@ -1,8 +1,13 @@
 import { Router } from 'express';
 import { CalendarController } from '../controllers/calendarController.js';
 import { BookingController } from '../controllers/bookingController.js';
+import { ClientController } from '../controllers/clientController.js';
 
 const router = Router();
+
+// Clients (Client Codes e.g. 1050, 4020)
+router.get('/clients', ClientController.listPublicClients);
+router.get('/clients/:clientCode', ClientController.getPublicClientByCode);
 
 // Calendar & Slot Availability
 router.get('/calendar/timezones', CalendarController.getTimezones);

@@ -14,6 +14,8 @@ import {
   WorkingHours,
   ActivityLog,
   GeneratedSlot,
+  ClientProfile,
+  ClientStats,
 } from '../types';
 
 const API_BASE = '/api';
@@ -63,19 +65,33 @@ async function request<T>(url: string, options: RequestInit = {}): Promise<T> {
 
 export const api = {
   // Public
+  getPublicClients: () => request<{ clients: ClientProfile[] }>('/public/clients'),
+  
+  getPublicClientByCode: (code: string) =>
+    request<{ client: ClientProfile }>(`/public/clients/${encodeURIComponent(code)}`),
+
   getTimezones: () => request<{ timezones: TimezoneOption[] }>('/public/calendar/timezones'),
   
-  getAvailableDates: (month: string, tz: string) =>
-    request<MonthAvailabilityResponse>(`/public/calendar/available-dates?month=${month}&tz=${encodeURIComponent(tz)}`),
+  getAvailableDates: (month: string, tz: string, clientCode?: string) =>
+    request<MonthAvailabilityResponse>(
+      `/public/calendar/available-dates?month=${month}&tz=${encodeURIComponent(tz)}${
+        clientCode ? '&clientCode=' + encodeURIComponent(clientCode) : ''
+      }`
+    ),
   
-  getSlotsForDate: (date: string, tz: string) =>
+  getSlotsForDate: (date: string, tz: string, clientCode?: string) =>
     request<{
       date: string;
       targetZone: string;
+      clientCode?: string;
       totalGenerated: number;
       availableCount: number;
       slots: GeneratedSlot[];
-    }>(`/public/calendar/slots?date=${date}&tz=${encodeURIComponent(tz)}`),
+    }>(
+      `/public/calendar/slots?date=${date}&tz=${encodeURIComponent(tz)}${
+        clientCode ? '&clientCode=' + encodeURIComponent(clientCode) : ''
+      }`
+    ),
   
   resolveBookingLink: (token: string) =>
     request<{
@@ -136,6 +152,7 @@ export const api = {
     search?: string;
     status?: string;
     agentId?: number;
+    clientCode?: string;
     timezone?: string;
     startDate?: string;
     endDate?: string;
@@ -146,6 +163,7 @@ export const api = {
     if (params.search) qs.set('search', params.search);
     if (params.status) qs.set('status', params.status);
     if (params.agentId) qs.set('agentId', String(params.agentId));
+    if (params.clientCode && params.clientCode !== 'ALL') qs.set('clientCode', params.clientCode);
     if (params.timezone) qs.set('timezone', params.timezone);
     if (params.startDate) qs.set('startDate', params.startDate);
     if (params.endDate) qs.set('endDate', params.endDate);
@@ -287,4 +305,29 @@ export const api = {
     request<{ message: string }>(`/admin/admins/${id}`, {
       method: 'DELETE',
     }),
+
+  // Admin Client Management & Analytics (Client Codes e.g. 1050, 4020)
+  getAdminClients: () => request<{ clients: ClientProfile[] }>('/admin/clients'),
+
+  createAdminClient: (data: Partial<ClientProfile>) =>
+    request<{ message: string; client: ClientProfile }>('/admin/clients', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+
+  updateAdminClient: (code: string, data: Partial<ClientProfile>) =>
+    request<{ message: string; client: ClientProfile }>(`/admin/clients/${encodeURIComponent(code)}`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    }),
+
+  deleteAdminClient: (code: string) =>
+    request<{ message: string }>(`/admin/clients/${encodeURIComponent(code)}`, {
+      method: 'DELETE',
+    }),
+
+  getClientStats: (code: string) =>
+    request<{ client: ClientProfile; stats: ClientStats; recentBookings: Booking[] }>(
+      `/admin/clients/${encodeURIComponent(code)}/stats`
+    ),
 };

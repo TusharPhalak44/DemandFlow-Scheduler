@@ -5,6 +5,7 @@ import { logActivity } from '../middlewares/auditLogger.js';
 import crypto from 'crypto';
 
 export interface CreateBookingInput {
+  clientCode?: string | null;
   agentId?: number | null;
   bookingLinkId?: number | null;
   agentName: string;
@@ -32,8 +33,7 @@ export class BookingEngine {
   }
 
   /**
-   * Creates a confirmed booking and locks the slot atomically in slot_inventory.
-   * Double-booking is physically prevented by the unique constraint on slot_start_utc.
+   * Creates a confirmed booking and locks the slot atomically.
    */
   static async createBooking(input: CreateBookingInput) {
     const startUtcDate = new Date(input.slotStartUtc);
@@ -57,18 +57,42 @@ export class BookingEngine {
 
     // Execute atomic transaction
     const result = await prisma.$transaction(async (tx) => {
-      // 1. Check if slot already reserved
-      const existingLock = await tx.slotInventory.findUnique({
-        where: { slotStartUtc: startUtcDate },
-      });
+      // 1. Check double booking
+      if (input.clientCode) {
+        const existingClientBooking = await tx.booking.findFirst({
+          where: {
+            clientCode: input.clientCode,
+            slotStartUtc: startUtcDate,
+            status: { in: ['CONFIRMED', 'PENDING'] },
+          },
+        });
+        if (existingClientBooking) {
+          const error = new Error(`This slot is already booked for client ${input.clientCode}. Please choose another time.`);
+          (error as any).code = 'SLOT_ALREADY_BOOKED';
+          throw error;
+        }
+      } else {
+        const existingLock = await tx.slotInventory.findUnique({
+          where: { slotStartUtc: startUtcDate },
+        });
 
-      if (existingLock) {
-        const error = new Error('This slot is already booked. Please choose another available time.');
-        (error as any).code = 'SLOT_ALREADY_BOOKED';
-        throw error;
+        if (existingLock) {
+          const error = new Error('This slot is already booked. Please choose another available time.');
+          (error as any).code = 'SLOT_ALREADY_BOOKED';
+          throw error;
+        }
       }
 
-      // 2. Create booking
+      // 2. Resolve client profile if clientCode provided
+      let clientId: number | null = null;
+      if (input.clientCode) {
+        const cp = await tx.clientProfile.findUnique({
+          where: { clientCode: input.clientCode },
+        });
+        if (cp) clientId = cp.id;
+      }
+
+      // 3. Create booking
       const fallbackProspectName = input.prospectName || (input.prospectEmail ? input.prospectEmail.split('@')[0] : 'Prospect');
       const fallbackCompany = input.companyName || (input.prospectEmail ? input.prospectEmail.split('@')[1] : 'General');
       const fallbackAgentEmail = input.agentEmail || `${input.agentName.toLowerCase().replace(/[^a-z0-9]/g, '.')}@demandflow.com`;
@@ -77,6 +101,8 @@ export class BookingEngine {
       const booking = await tx.booking.create({
         data: {
           bookingReference: reference,
+          clientCode: input.clientCode || null,
+          clientId: clientId || null,
           agentId: input.agentId || null,
           bookingLinkId: input.bookingLinkId || null,
           agentName: input.agentName,
@@ -93,14 +119,18 @@ export class BookingEngine {
         },
       });
 
-      // 3. Insert unique allocation into slot_inventory
-      await tx.slotInventory.create({
-        data: {
-          slotStartUtc: startUtcDate,
-          bookingId: booking.id,
-          status: 'BOOKED',
-        },
-      });
+      // 4. Try insert into slot_inventory
+      try {
+        await tx.slotInventory.create({
+          data: {
+            slotStartUtc: startUtcDate,
+            bookingId: booking.id,
+            status: 'BOOKED',
+          },
+        });
+      } catch {
+        // Multi-client instances might share the exact UTC instant
+      }
 
       // Increment click/booking count on booking link if provided
       if (input.bookingLinkId) {

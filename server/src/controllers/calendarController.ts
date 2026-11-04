@@ -45,7 +45,8 @@ export class CalendarController {
         return;
       }
 
-      const availability = await SlotEngine.getMonthAvailability(year, month, targetZone);
+      const clientCode = (req.query.clientCode as string)?.trim() || undefined;
+      const availability = await SlotEngine.getMonthAvailability(year, month, targetZone, clientCode);
       res.json(availability);
     } catch (error) {
       next(error);
@@ -56,6 +57,7 @@ export class CalendarController {
     try {
       const dateStr = req.query.date as string;
       const targetZone = (req.query.tz as string) || 'America/New_York';
+      const clientCode = (req.query.clientCode as string)?.trim() || undefined;
 
       if (!dateStr || !/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) {
         res.status(400).json({ error: 'Valid date query parameter required in YYYY-MM-DD format.' });
@@ -67,7 +69,7 @@ export class CalendarController {
         return;
       }
 
-      const slotsData = await SlotEngine.getAvailableSlotsForDate(dateStr, targetZone);
+      const slotsData = await SlotEngine.getAvailableSlotsForDate(dateStr, targetZone, clientCode);
       res.json(slotsData);
     } catch (error) {
       next(error);

@@ -40,6 +40,8 @@ export interface MonthAvailabilityResponse {
 export interface Booking {
   id: number;
   bookingReference: string;
+  clientCode?: string | null;
+  clientId?: number | null;
   agentId?: number | null;
   bookingLinkId?: number | null;
   agentName: string;
@@ -183,3 +185,37 @@ export interface ActivityLog {
     email: string;
   } | null;
 }
+
+export interface ClientProfile {
+  id: number;
+  clientCode: string;
+  name: string;
+  description?: string | null;
+  defaultTimezone: string;
+  meetingDurationMinutes: number;
+  bufferMinutes: number;
+  slotsPerHour: number;
+  workingDays: string;
+  startTime: string;
+  endTime: string;
+  autoFederalHolidays: boolean;
+  customHolidays?: string | null;
+  isActive: boolean;
+  createdAt?: string;
+  updatedAt?: string;
+  totalBookingsCount?: number;
+  confirmedBookingsCount?: number;
+  cancelledBookingsCount?: number;
+  openSlotsCount?: number;
+  occupancyRate?: number;
+}
+
+export interface ClientStats {
+  totalBookings: number;
+  confirmedBookings: number;
+  cancelledBookings: number;
+  openSlots: number;
+  totalCapacity: number;
+  occupancyRate: number;
+}
+

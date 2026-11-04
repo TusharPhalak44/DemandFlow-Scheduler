@@ -5,6 +5,7 @@ import { ToastProvider, useToast } from './components/common/Toast';
 import { BookingPage } from './pages/booking/BookingPage';
 import { AdminLoginPage } from './pages/admin/AdminLoginPage';
 import { AdminDashboard } from './pages/admin/AdminDashboard';
+import { AdminClientsPage } from './pages/admin/AdminClientsPage';
 import { AdminCalendarPage } from './pages/admin/AdminCalendarPage';
 import { AdminWorkingHoursPage } from './pages/admin/AdminWorkingHoursPage';
 import { AdminSlotSettingsPage } from './pages/admin/AdminSlotSettingsPage';
@@ -28,11 +29,12 @@ function AppContent() {
   // Parse URL hash on load and listen to hashchange
   useEffect(() => {
     function parseHash() {
-      const hash = window.location.hash.replace('#/', '');
-      if (!hash || hash.startsWith('book')) {
-        setCurrentView('booking');
-      } else if (hash.startsWith('admin')) {
+      const hash = window.location.hash.replace(/^#\/?/, '');
+      if (hash.startsWith('admin')) {
         setCurrentView(hash);
+      } else {
+        // Direct client codes (e.g. #/1050, #/4020, #/book/1050) or #/booking
+        setCurrentView('booking');
       }
     }
 
@@ -87,12 +89,15 @@ function AppContent() {
 
   return (
     <div className="min-h-screen flex flex-col bg-slate-50 text-slate-900">
-      <Navbar
-        currentView={currentView}
-        onNavigate={handleNavigate}
-        admin={admin}
-        onLogout={handleLogout}
-      />
+      {/* Top Navbar only shown on Admin routes; removed from Booking Page */}
+      {isAdminRoute && (
+        <Navbar
+          currentView={currentView}
+          onNavigate={handleNavigate}
+          admin={admin}
+          onLogout={handleLogout}
+        />
+      )}
 
       <main className="flex-1">
         {/* Public Booking Route */}
@@ -109,6 +114,7 @@ function AppContent() {
             <Sidebar currentView={currentView} onNavigate={handleNavigate} />
             <div className="flex-1 p-6 lg:p-8 max-w-7xl overflow-hidden">
               {currentView === 'admin-dashboard' && <AdminDashboard onNavigate={handleNavigate} />}
+              {currentView === 'admin-clients' && <AdminClientsPage />}
               {currentView === 'admin-calendar' && <AdminCalendarPage />}
               {currentView === 'admin-working-hours' && <AdminWorkingHoursPage />}
               {currentView === 'admin-slot-settings' && <AdminSlotSettingsPage />}

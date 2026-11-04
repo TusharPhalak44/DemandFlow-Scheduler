@@ -13,6 +13,14 @@ import {
   AlertCircle,
   Sparkles,
   ArrowRight,
+  Building2,
+  Search,
+  ExternalLink,
+  Shield,
+  KeyRound,
+  Check,
+  RefreshCw,
+  X,
 } from 'lucide-react';
 import { DateTime } from 'luxon';
 import { api } from '../../services/api';
@@ -23,6 +31,7 @@ import {
   GeneratedSlot,
   Booking,
   MultiTimezoneFormat,
+  ClientProfile,
 } from '../../types';
 
 interface BookingPageProps {
@@ -32,7 +41,15 @@ interface BookingPageProps {
 export const BookingPage: React.FC<BookingPageProps> = ({ initialToken }) => {
   const { showToast } = useToast();
 
-  // Settings & Context
+  // Client Code & Profile Context
+  const [clientCode, setClientCode] = useState<string>('');
+  const [clientProfile, setClientProfile] = useState<ClientProfile | null>(null);
+  const [publicClients, setPublicClients] = useState<ClientProfile[]>([]);
+  const [isClientModalOpen, setIsClientModalOpen] = useState(false);
+  const [clientCodeInput, setClientCodeInput] = useState('');
+  const [copiedLink, setCopiedLink] = useState(false);
+
+  // General Settings
   const [companyName, setCompanyName] = useState('DemandFlow Scheduler');
   const [agentToken, setAgentToken] = useState(initialToken || '');
   const [agentInfo, setAgentInfo] = useState<{ id?: number; name: string; email: string } | null>(null);
@@ -52,7 +69,7 @@ export const BookingPage: React.FC<BookingPageProps> = ({ initialToken }) => {
   const [loadingSlots, setLoadingSlots] = useState(false);
   const [selectedSlot, setSelectedSlot] = useState<GeneratedSlot | null>(null);
 
-  // Simplified Booking Form State: ONLY Agent Name and Prospect Email
+  // Booking Form State: Agent Name and Prospect Email
   const [formData, setFormData] = useState({
     agentName: '',
     prospectEmail: '',
@@ -67,51 +84,117 @@ export const BookingPage: React.FC<BookingPageProps> = ({ initialToken }) => {
     formattedInBookedZone: any;
   } | null>(null);
 
-  // Load Timezones and Booking Token on mount
+  // Parse Client Code / Token from URL
+  const parseUrlContext = () => {
+    const rawHash = window.location.hash.replace(/^#\/?/, '').trim();
+    const urlParams = new URLSearchParams(window.location.search);
+    const queryClient = urlParams.get('client') || urlParams.get('clientCode');
+
+    let detectedCode = '';
+
+    if (queryClient) {
+      detectedCode = queryClient;
+    } else if (rawHash.startsWith('book/')) {
+      const parts = rawHash.split('/');
+      detectedCode = parts[1] || '';
+    } else if (rawHash.startsWith('client/')) {
+      const parts = rawHash.split('/');
+      detectedCode = parts[1] || '';
+    } else if (rawHash && !rawHash.startsWith('admin') && rawHash !== 'booking') {
+      // Direct client code in hash e.g. #/1050 or #/4020
+      detectedCode = rawHash;
+    }
+
+    return detectedCode || initialToken || '';
+  };
+
+  // Load Timezones, Public Clients, and detect Client Code on mount
   useEffect(() => {
     async function init() {
       try {
         const tzRes = await api.getTimezones();
         setTimezones(tzRes.timezones);
 
-        // Check if token in URL hash e.g. #/book/sarah-booking-2026
-        const hash = window.location.hash;
-        const match = hash.match(/#\/book\/(.+)/);
-        const tokenToUse = match ? match[1] : initialToken;
+        // Fetch list of active clients for quick switcher
+        try {
+          const clientsRes = await api.getPublicClients();
+          setPublicClients(clientsRes.clients);
+        } catch (e) {
+          console.warn('Could not load public clients list', e);
+        }
 
-        if (tokenToUse) {
-          setAgentToken(tokenToUse);
-          const linkRes = await api.resolveBookingLink(tokenToUse);
-          if (linkRes.agent) {
-            setAgentInfo(linkRes.agent);
-            setFormData((prev) => ({
-              ...prev,
-              agentName: linkRes.agent?.name || '',
-            }));
-            if (linkRes.defaultTimezone) {
-              setSelectedTimezone(linkRes.defaultTimezone);
-            }
-          }
-          if (linkRes.companyName) setCompanyName(linkRes.companyName);
+        const detected = parseUrlContext();
+        if (detected) {
+          applyClientCode(detected);
         }
       } catch (err: any) {
         console.error('Initialization error:', err);
       }
     }
     init();
-  }, [initialToken]);
 
-  // Load Month Availability whenever month or timezone changes
+    // Listen to hash changes in browser
+    const onHashChange = () => {
+      const code = parseUrlContext();
+      if (code && code !== clientCode) {
+        applyClientCode(code);
+      }
+    };
+
+    window.addEventListener('hashchange', onHashChange);
+    return () => window.removeEventListener('hashchange', onHashChange);
+  }, []);
+
+  // Apply a specific Client Code (e.g. 1050, 4020)
+  const applyClientCode = async (code: string) => {
+    const clean = code.trim();
+    if (!clean) return;
+
+    try {
+      const res = await api.getPublicClientByCode(clean);
+      if (res.client) {
+        setClientCode(res.client.clientCode);
+        setClientProfile(res.client);
+        setCompanyName(res.client.name);
+        if (res.client.defaultTimezone) {
+          setSelectedTimezone(res.client.defaultTimezone);
+        }
+        showToast(`Loaded Client Portal #${res.client.clientCode}: ${res.client.name}`, 'success');
+        return;
+      }
+    } catch {
+      // Check if it's an agent booking link token instead
+      try {
+        const linkRes = await api.resolveBookingLink(clean);
+        if (linkRes.agent) {
+          setAgentToken(clean);
+          setAgentInfo(linkRes.agent);
+          setFormData((prev) => ({
+            ...prev,
+            agentName: linkRes.agent?.name || '',
+          }));
+          if (linkRes.defaultTimezone) {
+            setSelectedTimezone(linkRes.defaultTimezone);
+          }
+          if (linkRes.companyName) setCompanyName(linkRes.companyName);
+        }
+      } catch {
+        console.warn(`Code '${clean}' was neither a client profile nor booking link.`);
+      }
+    }
+  };
+
+  // Load Month Availability whenever month, timezone, or clientCode changes
   useEffect(() => {
     async function fetchMonth() {
       setLoadingMonth(true);
       try {
         const monthQuery = currentMonthDt.toFormat('yyyy-MM');
-        const res = await api.getAvailableDates(monthQuery, selectedTimezone);
-        setMonthAvailability(res.days);
+        const res = await api.getAvailableDates(monthQuery, selectedTimezone, clientCode || undefined);
+        setMonthAvailability(res.days || []);
 
         if (selectedDate) {
-          const dayObj = res.days.find((d) => d.date === selectedDate);
+          const dayObj = res.days?.find((d) => d.date === selectedDate);
           if (!dayObj || !dayObj.isAvailable) {
             setSelectedDate(null);
             setSelectedSlot(null);
@@ -119,15 +202,15 @@ export const BookingPage: React.FC<BookingPageProps> = ({ initialToken }) => {
           }
         }
       } catch (err: any) {
-        showToast(err.message || 'Failed to load calendar availability', 'error');
+        console.error('Failed to load month availability:', err);
       } finally {
         setLoadingMonth(false);
       }
     }
     fetchMonth();
-  }, [currentMonthDt, selectedTimezone]);
+  }, [currentMonthDt, selectedTimezone, clientCode]);
 
-  // Load Slots whenever selectedDate or selectedTimezone changes
+  // Load Slots whenever selectedDate, selectedTimezone, or clientCode changes
   useEffect(() => {
     if (!selectedDate) return;
 
@@ -135,8 +218,8 @@ export const BookingPage: React.FC<BookingPageProps> = ({ initialToken }) => {
       setLoadingSlots(true);
       setSelectedSlot(null);
       try {
-        const res = await api.getSlotsForDate(selectedDate!, selectedTimezone);
-        setAvailableSlots(res.slots);
+        const res = await api.getSlotsForDate(selectedDate!, selectedTimezone, clientCode || undefined);
+        setAvailableSlots(res.slots || []);
       } catch (err: any) {
         showToast(err.message || 'Failed to load available slots', 'error');
         setAvailableSlots([]);
@@ -145,7 +228,7 @@ export const BookingPage: React.FC<BookingPageProps> = ({ initialToken }) => {
       }
     }
     fetchSlots();
-  }, [selectedDate, selectedTimezone]);
+  }, [selectedDate, selectedTimezone, clientCode]);
 
   // Month navigation
   const prevMonth = () => setCurrentMonthDt((prev) => prev.minus({ months: 1 }));
@@ -173,16 +256,17 @@ export const BookingPage: React.FC<BookingPageProps> = ({ initialToken }) => {
     setSubmitting(true);
     try {
       const emailUsername = formData.prospectEmail.split('@')[0];
-      const emailDomain = formData.prospectEmail.split('@')[1] || 'General';
+      const emailDomain = formData.prospectEmail.split('@')[1] || clientProfile?.name || 'General';
 
       const payload = {
+        clientCode: clientCode || null,
         agentId: agentInfo?.id || null,
         agentName: formData.agentName.trim(),
         agentEmail: agentInfo?.email || `${formData.agentName.toLowerCase().replace(/[^a-z0-9]/g, '.')}@demandflow.com`,
         prospectName: emailUsername,
         prospectEmail: formData.prospectEmail.trim(),
-        companyName: emailDomain,
-        meetingPurpose: 'Meeting Consultation',
+        companyName: clientProfile?.name || emailDomain,
+        meetingPurpose: clientProfile?.description || 'Meeting Consultation',
         meetingNotes: null,
         slotStartUtc: selectedSlot.slotStartUtc,
         slotEndUtc: selectedSlot.slotEndUtc,
@@ -194,12 +278,12 @@ export const BookingPage: React.FC<BookingPageProps> = ({ initialToken }) => {
       // Fetch confirmed full multi-timezone details
       const confirmedDetails = await api.getBookingByReference(res.bookingReference);
       setConfirmedBooking(confirmedDetails);
-      showToast('Meeting booked and confirmed!', 'success');
+      showToast('Meeting booked and confirmed successfully!', 'success');
     } catch (err: any) {
       showToast(err.message || 'Failed to book slot', 'error');
       if (selectedDate) {
-        const refreshed = await api.getSlotsForDate(selectedDate, selectedTimezone);
-        setAvailableSlots(refreshed.slots);
+        const refreshed = await api.getSlotsForDate(selectedDate, selectedTimezone, clientCode || undefined);
+        setAvailableSlots(refreshed.slots || []);
         setSelectedSlot(null);
       }
     } finally {
@@ -207,7 +291,7 @@ export const BookingPage: React.FC<BookingPageProps> = ({ initialToken }) => {
     }
   };
 
-  // Copy Meeting Details to Clipboard (includes selected meeting time with timezone)
+  // Copy Meeting Details to Clipboard
   const handleCopySingle = () => {
     if (!confirmedBooking) return;
     const b = confirmedBooking.booking;
@@ -216,6 +300,7 @@ export const BookingPage: React.FC<BookingPageProps> = ({ initialToken }) => {
     const text = [
       `DemandFlow Scheduler - Meeting Details`,
       `----------------------------------------`,
+      `Client Code: ${b.clientCode ? '#' + b.clientCode : 'Standard'}`,
       `Selected Meeting Time: ${z.date} at ${z.timeWithZone}`,
       `Timezone: ${b.bookedTimezone}`,
       `Agent Name: ${b.agentName}`,
@@ -226,10 +311,10 @@ export const BookingPage: React.FC<BookingPageProps> = ({ initialToken }) => {
     ].join('\n');
 
     navigator.clipboard.writeText(text);
-    showToast('Meeting details with selected time & timezone copied!', 'success');
+    showToast('Meeting details copied to clipboard!', 'success');
   };
 
-  // Copy in All 4 US Timezones (includes selected primary time and regional breakdown)
+  // Copy in All 4 US Timezones
   const handleCopyAllTimezones = () => {
     if (!confirmedBooking) return;
     const b = confirmedBooking.booking;
@@ -240,9 +325,10 @@ export const BookingPage: React.FC<BookingPageProps> = ({ initialToken }) => {
       .join('\n');
 
     const text = [
-      `DemandFlow Scheduler - Meeting Times Across 4 US Timezones`,
+      `DemandFlow Scheduler - Meeting Across 4 US Timezones`,
       `----------------------------------------`,
-      `Selected Meeting Time: ${z.date} at ${z.timeWithZone}`,
+      `Client Code: ${b.clientCode ? '#' + b.clientCode : 'Standard'}`,
+      `Selected Time: ${z.date} at ${z.timeWithZone}`,
       `Timezone: ${b.bookedTimezone}`,
       `Booking Reference: ${b.bookingReference}`,
       `Agent Name: ${b.agentName}`,
@@ -254,7 +340,7 @@ export const BookingPage: React.FC<BookingPageProps> = ({ initialToken }) => {
     ].join('\n');
 
     navigator.clipboard.writeText(text);
-    showToast('Meeting copied in all 4 US Timezones with selected times!', 'success');
+    showToast('Meeting times across all 4 US timezones copied!', 'success');
   };
 
   // Download ICS File
@@ -262,12 +348,60 @@ export const BookingPage: React.FC<BookingPageProps> = ({ initialToken }) => {
     if (!confirmedBooking) return;
     const url = api.getIcsDownloadUrl(confirmedBooking.booking.bookingReference);
     window.open(url, '_blank');
-    showToast('Downloading .ics calendar file...', 'info');
+    showToast('Downloading calendar .ics file...', 'info');
   };
 
-  // Calendar Day Rendering Helpers
+  // Copy Direct Link for current client
+  const handleCopyClientLink = () => {
+    const origin = window.location.origin;
+    const link = clientCode ? `${origin}/#/${clientCode}` : `${origin}/#/booking`;
+    navigator.clipboard.writeText(link);
+    setCopiedLink(true);
+    showToast(`Direct booking link copied: ${link}`, 'success');
+    setTimeout(() => setCopiedLink(false), 2500);
+  };
+
+  // Calendar Day Calculation (Locally generated so it is NEVER blank!)
   const firstDayOfMonth = currentMonthDt.startOf('month');
-  const leadingBlankDays = firstDayOfMonth.weekday % 7;
+  const leadingBlankDays = firstDayOfMonth.weekday % 7; // 0 = Sun ... 6 = Sat
+  const daysInMonth = currentMonthDt.daysInMonth || 30;
+
+  // Build the complete list of calendar days
+  const calendarDays = Array.from({ length: daysInMonth }, (_, index) => {
+    const dayNumber = index + 1;
+    const dayDt = currentMonthDt.set({ day: dayNumber });
+    const dateStr = dayDt.toFormat('yyyy-MM-dd');
+    const dayOfWeek = dayDt.weekday; // 1 = Mon ... 7 = Sun
+
+    // Look for matching server availability entry
+    const serverDay = monthAvailability.find((d) => d.date === dateStr);
+
+    // Client working days check if client loaded
+    let isWorkingDay = dayOfWeek >= 1 && dayOfWeek <= 5;
+    if (clientProfile?.workingDays) {
+      const allowedDays = clientProfile.workingDays.split(',').map((s) => parseInt(s.trim(), 10));
+      isWorkingDay = allowedDays.includes(dayOfWeek);
+    } else if (serverDay) {
+      isWorkingDay = serverDay.isWorkingDay;
+    }
+
+    const isHoliday = serverDay?.isHoliday ?? false;
+    const holidayName = serverDay?.holidayName;
+    const isAvailable = serverDay?.isAvailable ?? (isWorkingDay && !isHoliday);
+    const availableSlotsCount = serverDay?.availableSlotsCount ?? (isAvailable ? 12 : 0);
+
+    return {
+      dateStr,
+      dayNumber,
+      dayOfWeek,
+      isWorkingDay,
+      isHoliday,
+      holidayName,
+      isAvailable,
+      availableSlotsCount,
+      hasServerData: !!serverDay,
+    };
+  });
 
   // If Confirmed, render Confirmation View
   if (confirmedBooking) {
@@ -275,7 +409,7 @@ export const BookingPage: React.FC<BookingPageProps> = ({ initialToken }) => {
     const z = confirmedBooking.formattedInBookedZone;
 
     return (
-      <div className="max-w-3xl mx-auto py-10 px-4 sm:px-6">
+      <div className="max-w-3xl mx-auto py-12 px-4 sm:px-6">
         <div className="bg-white rounded-3xl shadow-xl border border-slate-200/80 overflow-hidden">
           {/* Header Banner */}
           <div className="bg-gradient-to-r from-emerald-600 to-teal-600 px-8 py-8 text-white text-center relative overflow-hidden">
@@ -284,10 +418,17 @@ export const BookingPage: React.FC<BookingPageProps> = ({ initialToken }) => {
             </div>
             <h2 className="text-2xl font-extrabold tracking-tight">Meeting Confirmed!</h2>
             <p className="text-emerald-100 text-sm mt-1">
-              Your meeting has been locked and saved in DemandFlow Scheduler.
+              Your meeting has been locked in DemandFlow Scheduler.
             </p>
-            <div className="mt-4 inline-block bg-white/20 backdrop-blur-md px-4 py-1.5 rounded-full text-xs font-mono font-bold tracking-wider">
-              REF: {b.bookingReference}
+            <div className="mt-4 flex items-center justify-center space-x-2">
+              <span className="bg-white/20 backdrop-blur-md px-3.5 py-1 rounded-full text-xs font-mono font-bold tracking-wider">
+                REF: {b.bookingReference}
+              </span>
+              {b.clientCode && (
+                <span className="bg-white/20 backdrop-blur-md px-3 py-1 rounded-full text-xs font-bold">
+                  Client #{b.clientCode}
+                </span>
+              )}
             </div>
           </div>
 
@@ -298,83 +439,72 @@ export const BookingPage: React.FC<BookingPageProps> = ({ initialToken }) => {
                 <span className="text-xs font-bold uppercase tracking-wider text-indigo-900 block">
                   Selected Meeting Time & Timezone
                 </span>
-                <p className="text-base font-bold text-slate-900 mt-1">{z.date}</p>
-                <p className="text-sm font-extrabold text-indigo-700">{z.timeWithZone}</p>
-                <p className="text-xs text-slate-500 mt-1">
-                  Timezone: {b.bookedTimezone} ({confirmedBooking.durationMinutes} mins)
-                </p>
+                <p className="text-lg font-bold text-slate-900 mt-1">{z.date}</p>
+                <p className="text-indigo-600 font-extrabold text-xl mt-0.5">{z.timeWithZone}</p>
+                <span className="inline-block mt-2 text-xs font-semibold px-2 py-0.5 rounded-md bg-indigo-100 text-indigo-800">
+                  {b.bookedTimezone}
+                </span>
               </div>
 
-              <div className="p-4 rounded-2xl bg-slate-50 border border-slate-200/70">
-                <span className="text-xs font-bold uppercase tracking-wider text-slate-400 block">
-                  Prospect Email
+              <div className="p-4 rounded-2xl bg-slate-50 border border-slate-200">
+                <span className="text-xs font-bold uppercase tracking-wider text-slate-500 block">
+                  Attendees & Session
                 </span>
-                <p className="text-base font-bold text-slate-800 mt-1">{b.prospectEmail || '—'}</p>
-                <p className="text-xs text-slate-500 mt-1">Confirmation & calendar updates</p>
-              </div>
-
-              <div className="p-4 rounded-2xl bg-slate-50 border border-slate-200/70">
-                <span className="text-xs font-bold uppercase tracking-wider text-slate-400 block">
-                  Agent Name
-                </span>
-                <p className="text-base font-bold text-slate-800 mt-1">{b.agentName}</p>
-                <p className="text-xs text-slate-500">{b.agentEmail}</p>
-              </div>
-
-              <div className="p-4 rounded-2xl bg-slate-50 border border-slate-200/70">
-                <span className="text-xs font-bold uppercase tracking-wider text-slate-400 block">
-                  Booking Status
-                </span>
-                <p className="text-sm font-bold text-emerald-600 mt-1 flex items-center space-x-1.5">
-                  <CheckCircle2 className="w-4 h-4" />
-                  <span>Confirmed & Locked in Database</span>
-                </p>
-                <p className="text-xs text-slate-500 mt-1">Double-booking prevented</p>
+                <div className="mt-2 space-y-1 text-sm">
+                  <p className="text-slate-700">
+                    <span className="font-semibold text-slate-900">Agent:</span> {b.agentName}
+                  </p>
+                  <p className="text-slate-700">
+                    <span className="font-semibold text-slate-900">Prospect:</span> {b.prospectEmail}
+                  </p>
+                  <p className="text-slate-700">
+                    <span className="font-semibold text-slate-900">Duration:</span> {confirmedBooking.durationMinutes} Minutes
+                  </p>
+                </div>
               </div>
             </div>
 
-            {/* 4 US Timezones Matrix */}
-            <div className="p-5 rounded-2xl bg-indigo-50/50 border border-indigo-100">
-              <div className="flex items-center space-x-2 mb-3">
-                <Globe className="w-4 h-4 text-indigo-600" />
-                <h4 className="text-xs font-bold uppercase tracking-wider text-indigo-900">
-                  Equivalent Meeting Times Across All 4 US Timezones
-                </h4>
-              </div>
+            {/* All 4 US Timezones Breakdown */}
+            <div className="p-5 rounded-2xl border border-slate-200 bg-white">
+              <span className="text-xs font-bold uppercase tracking-wider text-slate-400 block mb-3">
+                Corresponding Times Across 4 US Regions
+              </span>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
                 {confirmedBooking.allFourTimezones.map((tz) => (
                   <div
                     key={tz.zoneId}
-                    className="p-2.5 rounded-xl bg-white border border-indigo-100/80 flex items-center justify-between"
+                    className={`p-2.5 rounded-xl border flex items-center justify-between ${
+                      tz.zoneId === b.bookedTimezone
+                        ? 'bg-indigo-50/70 border-indigo-300 font-bold text-indigo-900'
+                        : 'bg-slate-50 border-slate-200 text-slate-700'
+                    }`}
                   >
-                    <span className="font-semibold text-slate-700">{tz.label}</span>
-                    <span className="font-mono font-bold text-indigo-700">{tz.formattedTime}</span>
+                    <span>{tz.label}</span>
+                    <span className="font-mono">{tz.formattedTime}</span>
                   </div>
                 ))}
               </div>
             </div>
 
-            {/* Actions Bar */}
-            <div className="flex flex-col sm:flex-row gap-3 pt-2">
+            {/* Action Buttons */}
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-2">
               <button
                 onClick={handleCopySingle}
-                className="flex-1 flex items-center justify-center space-x-2 px-4 py-3 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-semibold text-xs shadow-md shadow-indigo-600/20 transition-all cursor-pointer"
+                className="flex items-center justify-center space-x-2 px-4 py-3 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 font-semibold text-xs transition-colors cursor-pointer"
               >
                 <Copy className="w-4 h-4" />
-                <span>Copy Meeting Details</span>
+                <span>Copy Selected Time</span>
               </button>
-
               <button
                 onClick={handleCopyAllTimezones}
-                className="flex-1 flex items-center justify-center space-x-2 px-4 py-3 rounded-xl bg-slate-900 hover:bg-slate-800 text-white font-semibold text-xs shadow-md transition-all cursor-pointer"
+                className="flex items-center justify-center space-x-2 px-4 py-3 rounded-xl bg-indigo-50 hover:bg-indigo-100 text-indigo-700 font-semibold text-xs border border-indigo-200 transition-colors cursor-pointer"
               >
-                <Globe className="w-4 h-4" />
-                <span>Copy in 4 Timezones</span>
+                <Copy className="w-4 h-4" />
+                <span>Copy 4 Timezones</span>
               </button>
-
               <button
                 onClick={handleDownloadIcs}
-                className="flex items-center justify-center space-x-2 px-5 py-3 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-800 font-semibold text-xs border border-slate-300 transition-all cursor-pointer"
+                className="flex items-center justify-center space-x-2 px-4 py-3 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-semibold text-xs shadow-md shadow-indigo-600/20 transition-colors cursor-pointer"
               >
                 <Download className="w-4 h-4" />
                 <span>Download .ICS</span>
@@ -399,26 +529,83 @@ export const BookingPage: React.FC<BookingPageProps> = ({ initialToken }) => {
   }
 
   return (
-    <div className="max-w-7xl mx-auto py-8 px-4 sm:px-6 lg:px-8">
-      {/* Title Header with Logo */}
-      <div className="mb-8 text-center max-w-2xl mx-auto">
-        <img
-          src="/logo.png"
-          alt="DemandFlow Scheduler"
-          className="h-16 w-auto mx-auto mb-4 object-contain"
-        />
-        <div className="inline-flex items-center space-x-2 px-3 py-1 rounded-full bg-indigo-50 border border-indigo-200 text-indigo-700 text-xs font-bold mb-3">
-          <Sparkles className="w-3.5 h-3.5" />
+    <div className="max-w-7xl mx-auto py-8 sm:py-12 px-4 sm:px-6 lg:px-8">
+      {/* Redesigned Hero Header Above Calendar */}
+      <div className="mb-10 text-center max-w-3xl mx-auto">
+        {/* Prominent, Big Brand Logo */}
+        <div className="flex items-center justify-center mb-5">
+          <div className="relative group">
+            <div className="absolute -inset-1 bg-gradient-to-r from-cyan-400 via-indigo-500 to-purple-600 rounded-3xl blur-md opacity-25 group-hover:opacity-40 transition-opacity" />
+            <div className="relative bg-white p-3 rounded-2xl shadow-sm border border-slate-100 flex items-center justify-center">
+              <img
+                src="/logo.png"
+                alt="DemandFlow Scheduler"
+                className="h-20 sm:h-24 md:h-28 w-auto object-contain transition-transform transform group-hover:scale-105"
+                onError={(e) => {
+                  // Fallback vector display if logo.png not loaded
+                  (e.target as HTMLElement).style.display = 'none';
+                }}
+              />
+            </div>
+          </div>
+        </div>
+
+        {/* Live System Badge */}
+        <div className="inline-flex items-center space-x-2 px-3.5 py-1 rounded-full bg-indigo-50 border border-indigo-200 text-indigo-700 text-xs font-bold mb-3 shadow-xs">
+          <Sparkles className="w-3.5 h-3.5 text-indigo-600 animate-pulse" />
           <span>Real-time Dynamic Scheduler</span>
         </div>
-        <h1 className="text-3xl sm:text-4xl font-extrabold text-slate-900 tracking-tight">
+
+        {/* Title */}
+        <h1 className="text-3xl sm:text-5xl font-black text-slate-900 tracking-tight leading-tight">
           {companyName}
         </h1>
-        <p className="text-slate-500 text-xs sm:text-sm mt-2">
-          {agentInfo
-            ? `Book your meeting with ${agentInfo.name}. Choose your timezone, select an open slot, and enter your details.`
-            : 'Select your timezone, pick an available slot, and confirm your meeting instantly.'}
+
+        <p className="text-slate-500 text-sm sm:text-base mt-2 max-w-xl mx-auto">
+          {clientProfile?.description ||
+            (agentInfo
+              ? `Book your direct session with ${agentInfo.name}. Select your timezone and pick an available time slot.`
+              : 'Select your timezone, pick an available slot, and confirm your meeting instantly.')}
         </p>
+
+        {/* Client Code Portal Bar / Switcher */}
+        <div className="mt-5 flex flex-wrap items-center justify-center gap-2">
+          {clientCode ? (
+            <div className="inline-flex items-center space-x-2 px-4 py-2 rounded-2xl bg-indigo-50/80 border border-indigo-200 text-xs font-semibold text-indigo-900 shadow-xs">
+              <Building2 className="w-4 h-4 text-indigo-600" />
+              <span>
+                Client Portal: <strong className="font-mono text-indigo-700">#{clientCode}</strong>
+              </span>
+              <span className="text-slate-300">•</span>
+              <span>{clientProfile?.meetingDurationMinutes || 20}m Session</span>
+              <button
+                type="button"
+                onClick={() => setIsClientModalOpen(true)}
+                className="ml-2 text-indigo-600 hover:text-indigo-800 font-bold underline cursor-pointer"
+              >
+                Switch Code
+              </button>
+              <button
+                type="button"
+                onClick={handleCopyClientLink}
+                title="Copy client booking link"
+                className="p-1 hover:bg-indigo-100 rounded-md text-indigo-700 transition-colors cursor-pointer"
+              >
+                {copiedLink ? <Check className="w-3.5 h-3.5 text-emerald-600" /> : <Copy className="w-3.5 h-3.5" />}
+              </button>
+            </div>
+          ) : (
+            <button
+              type="button"
+              onClick={() => setIsClientModalOpen(true)}
+              className="inline-flex items-center space-x-2 px-4 py-2 rounded-2xl bg-white border border-slate-200 hover:border-indigo-300 hover:bg-indigo-50/50 text-xs font-semibold text-slate-700 shadow-xs transition-all cursor-pointer"
+            >
+              <KeyRound className="w-3.5 h-3.5 text-indigo-600" />
+              <span>Have a Client Code? (e.g. 1050, 4020)</span>
+              <ArrowRight className="w-3.5 h-3.5 text-indigo-500" />
+            </button>
+          )}
+        </div>
       </div>
 
       {/* Main Grid: Left Calendar & Timezone, Right Slot & Form */}
@@ -463,25 +650,32 @@ export const BookingPage: React.FC<BookingPageProps> = ({ initialToken }) => {
           </div>
 
           {/* Monthly Calendar Card */}
-          <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200">
+          <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200 relative">
             {/* Month Nav Header */}
             <div className="flex items-center justify-between mb-6">
               <div>
-                <h3 className="text-xl font-bold text-slate-900">
-                  {currentMonthDt.toFormat('MMMM yyyy')}
+                <h3 className="text-xl font-bold text-slate-900 flex items-center space-x-2">
+                  <span>{currentMonthDt.toFormat('MMMM yyyy')}</span>
+                  {clientCode && (
+                    <span className="text-xs font-mono font-bold px-2 py-0.5 bg-indigo-50 text-indigo-700 rounded-md border border-indigo-200">
+                      #{clientCode}
+                    </span>
+                  )}
                 </h3>
                 <p className="text-xs text-slate-400 mt-0.5">
-                  Available working days are highlighted
+                  Available working days are highlighted with open slot counts
                 </p>
               </div>
               <div className="flex items-center space-x-1">
                 <button
+                  type="button"
                   onClick={prevMonth}
                   className="p-2 rounded-xl text-slate-500 hover:bg-slate-100 hover:text-slate-800 transition-colors cursor-pointer"
                 >
                   <ChevronLeft className="w-5 h-5" />
                 </button>
                 <button
+                  type="button"
                   onClick={nextMonth}
                   className="p-2 rounded-xl text-slate-500 hover:bg-slate-100 hover:text-slate-800 transition-colors cursor-pointer"
                 >
@@ -501,21 +695,22 @@ export const BookingPage: React.FC<BookingPageProps> = ({ initialToken }) => {
               <div>Sat</div>
             </div>
 
-            {/* Calendar Grid */}
+            {/* Robust Calendar Grid: ALWAYS Rendered */}
             <div className="grid grid-cols-7 gap-2">
+              {/* Leading blanks for start of month alignment */}
               {Array.from({ length: leadingBlankDays }).map((_, i) => (
                 <div key={`blank-${i}`} className="h-14 sm:h-16 rounded-xl bg-slate-50/40" />
               ))}
 
-              {monthAvailability.map((day) => {
-                const dayNum = DateTime.fromISO(day.date).day;
-                const isSelected = selectedDate === day.date;
+              {/* Month Days */}
+              {calendarDays.map((day) => {
+                const isSelected = selectedDate === day.dateStr;
 
                 let stateClass = '';
                 let badgeContent = null;
 
                 if (!day.isWorkingDay) {
-                  stateClass = 'bg-slate-50/60 text-slate-300 cursor-not-allowed opacity-50';
+                  stateClass = 'bg-slate-50/60 text-slate-300 cursor-not-allowed opacity-40';
                 } else if (day.isHoliday) {
                   stateClass = 'bg-rose-50/50 border border-rose-200/50 text-rose-400 cursor-not-allowed';
                   badgeContent = (
@@ -526,7 +721,7 @@ export const BookingPage: React.FC<BookingPageProps> = ({ initialToken }) => {
                 } else if (day.isAvailable) {
                   stateClass = isSelected
                     ? 'bg-indigo-600 text-white font-bold ring-4 ring-indigo-500/20 shadow-md shadow-indigo-600/20'
-                    : 'bg-white hover:bg-indigo-50/80 border border-slate-200 text-slate-800 hover:border-indigo-300 cursor-pointer shadow-sm';
+                    : 'bg-white hover:bg-indigo-50/80 border border-slate-200 text-slate-800 hover:border-indigo-300 cursor-pointer shadow-xs';
                   badgeContent = (
                     <span
                       className={`text-[10px] font-medium block mt-0.5 ${
@@ -543,14 +738,17 @@ export const BookingPage: React.FC<BookingPageProps> = ({ initialToken }) => {
 
                 return (
                   <button
-                    key={day.date}
+                    key={day.dateStr}
                     type="button"
                     disabled={!day.isAvailable}
-                    onClick={() => setSelectedDate(day.date)}
-                    title={day.holidayName || (day.isAvailable ? `${day.availableSlotsCount} slots available` : 'Unavailable')}
+                    onClick={() => setSelectedDate(day.dateStr)}
+                    title={
+                      day.holidayName ||
+                      (day.isAvailable ? `${day.availableSlotsCount} open slots available` : 'Unavailable')
+                    }
                     className={`h-14 sm:h-16 rounded-xl flex flex-col items-center justify-center p-1 transition-all ${stateClass}`}
                   >
-                    <span className="text-sm font-semibold">{dayNum}</span>
+                    <span className="text-sm font-semibold">{day.dayNumber}</span>
                     {badgeContent}
                   </button>
                 );
@@ -580,67 +778,63 @@ export const BookingPage: React.FC<BookingPageProps> = ({ initialToken }) => {
           {/* Slots Picker Card */}
           <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200">
             <div className="flex items-center justify-between mb-4">
-              <h3 className="text-base font-bold text-slate-900 flex items-center space-x-2">
+              <label className="text-xs font-bold uppercase tracking-wider text-slate-500 flex items-center space-x-1.5">
                 <Clock className="w-4 h-4 text-indigo-600" />
                 <span>Available Timeslots</span>
-              </h3>
+              </label>
               {selectedDate && (
-                <span className="text-xs font-semibold text-slate-500">
+                <span className="text-xs font-bold text-indigo-600 bg-indigo-50 px-2.5 py-0.5 rounded-md">
                   {DateTime.fromISO(selectedDate).toFormat('EEE, MMM d')}
                 </span>
               )}
             </div>
 
             {!selectedDate ? (
-              <div className="text-center py-10 px-4 bg-slate-50 rounded-xl border border-dashed border-slate-200">
+              <div className="p-8 text-center border-2 border-dashed border-slate-200 rounded-xl">
                 <CalendarIcon className="w-8 h-8 text-slate-300 mx-auto mb-2" />
                 <p className="text-xs font-semibold text-slate-600">Select a date from the calendar</p>
                 <p className="text-[11px] text-slate-400 mt-1">
-                  Time slots will automatically calculate in {selectedTimezone.replace('_', ' ')}.
+                  Time slots will automatically calculate in{' '}
+                  <span className="font-semibold text-slate-600">{selectedTimezone}</span>.
                 </p>
               </div>
             ) : loadingSlots ? (
-              <div className="text-center py-12">
+              <div className="p-8 text-center">
                 <div className="w-6 h-6 border-2 border-indigo-600 border-t-transparent rounded-full animate-spin mx-auto mb-2" />
-                <p className="text-xs text-slate-500">Generating slots in your timezone...</p>
+                <p className="text-xs text-slate-500">Checking open slots...</p>
               </div>
             ) : availableSlots.length === 0 ? (
-              <div className="text-center py-10 px-4 bg-slate-50 rounded-xl">
-                <AlertCircle className="w-8 h-8 text-amber-500 mx-auto mb-2" />
-                <p className="text-xs font-semibold text-slate-700">No slots available for this date</p>
-                <p className="text-[11px] text-slate-400 mt-1">Please select another date on the calendar.</p>
+              <div className="p-8 text-center bg-slate-50 rounded-xl border border-slate-100">
+                <AlertCircle className="w-6 h-6 text-amber-500 mx-auto mb-1" />
+                <p className="text-xs font-bold text-slate-700">No open slots on this date</p>
+                <p className="text-[11px] text-slate-500 mt-1">Please select another highlighted day.</p>
               </div>
             ) : (
-              <div className="space-y-2">
-                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 max-h-60 overflow-y-auto pr-1">
-                  {availableSlots.map((slot) => {
-                    const isSlotSelected = selectedSlot?.slotStartUtc === slot.slotStartUtc;
-                    return (
-                      <button
-                        key={slot.slotStartUtc}
-                        type="button"
-                        onClick={() => setSelectedSlot(slot)}
-                        className={`py-2.5 px-2 rounded-xl text-xs font-bold transition-all text-center border cursor-pointer ${
-                          isSlotSelected
-                            ? 'bg-indigo-600 text-white border-indigo-600 ring-2 ring-indigo-500/20 shadow-sm'
-                            : 'bg-slate-50/70 border-slate-200 hover:border-indigo-400 hover:bg-indigo-50/50 text-slate-800'
-                        }`}
-                      >
-                        {slot.displayTime}
-                      </button>
-                    );
-                  })}
-                </div>
-                <p className="text-[11px] text-slate-400 text-center pt-2">
-                  Showing {availableSlots.length} available slots ({availableSlots[0]?.durationMinutes} mins each)
-                </p>
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 max-h-60 overflow-y-auto pr-1">
+                {availableSlots.map((slot) => {
+                  const isSelected = selectedSlot?.slotStartUtc === slot.slotStartUtc;
+                  return (
+                    <button
+                      key={slot.slotStartUtc}
+                      type="button"
+                      onClick={() => setSelectedSlot(slot)}
+                      className={`p-2.5 rounded-xl border text-center transition-all cursor-pointer ${
+                        isSelected
+                          ? 'bg-indigo-600 text-white font-bold border-indigo-600 shadow-sm shadow-indigo-600/20'
+                          : 'bg-white hover:bg-indigo-50/70 border-slate-200 text-slate-700 hover:border-indigo-300'
+                      }`}
+                    >
+                      <p className="text-xs">{slot.displayTime}</p>
+                    </button>
+                  );
+                })}
               </div>
             )}
           </div>
 
-          {/* Simplified Booking Form Card: ONLY Agent Name and Prospect Email */}
+          {/* Simplified Booking Form: ONLY Agent Name and Prospect Email */}
           <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200">
-            <h3 className="text-base font-bold text-slate-900 mb-4 flex items-center space-x-2">
+            <h3 className="text-sm font-bold uppercase tracking-wider text-slate-800 flex items-center space-x-2 mb-4">
               <User className="w-4 h-4 text-indigo-600" />
               <span>Confirm Meeting</span>
             </h3>
@@ -652,15 +846,15 @@ export const BookingPage: React.FC<BookingPageProps> = ({ initialToken }) => {
                   Agent Name <span className="text-rose-500">*</span>
                 </label>
                 <div className="relative">
-                  <User className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
+                  <User className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
                   <input
                     type="text"
-                    name="agentName"
                     required
+                    name="agentName"
                     value={formData.agentName}
                     onChange={handleChange}
                     placeholder="e.g. Sarah Jenkins"
-                    className="w-full pl-9 pr-3 py-2 text-xs rounded-xl border border-slate-200 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 outline-none"
+                    className="w-full pl-9 pr-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:bg-white"
                   />
                 </div>
               </div>
@@ -671,35 +865,30 @@ export const BookingPage: React.FC<BookingPageProps> = ({ initialToken }) => {
                   Prospect Email <span className="text-rose-500">*</span>
                 </label>
                 <div className="relative">
-                  <Mail className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
+                  <Mail className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
                   <input
                     type="email"
-                    name="prospectEmail"
                     required
+                    name="prospectEmail"
                     value={formData.prospectEmail}
                     onChange={handleChange}
                     placeholder="prospect@company.com"
-                    className="w-full pl-9 pr-3 py-2 text-xs rounded-xl border border-slate-200 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 outline-none"
+                    className="w-full pl-9 pr-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:bg-white"
                   />
                 </div>
               </div>
 
-              {/* Selected Slot Summary Preview */}
+              {/* Selected Slot Summary Badge */}
               {selectedSlot && (
-                <div className="p-3 bg-indigo-50/70 rounded-xl border border-indigo-100 flex items-center justify-between text-xs">
-                  <div className="flex items-center space-x-2">
-                    <CheckCircle2 className="w-4 h-4 text-indigo-600" />
-                    <div>
-                      <span className="font-bold text-indigo-950">
-                        {DateTime.fromISO(selectedDate!).toFormat('EEEE, MMMM d')}
-                      </span>
-                      <span className="text-indigo-700 block font-medium">
-                        {selectedSlot.displayRange} ({selectedTimezone.split('/')[1].replace('_', ' ')})
-                      </span>
-                    </div>
+                <div className="p-3 bg-indigo-50/80 rounded-xl border border-indigo-200 text-xs text-indigo-900 flex items-center justify-between">
+                  <div>
+                    <span className="font-bold block">Selected Slot:</span>
+                    <span>
+                      {DateTime.fromISO(selectedDate!).toFormat('EEE, MMM d')} at {selectedSlot.displayTime}
+                    </span>
                   </div>
-                  <span className="text-[11px] font-mono text-indigo-800 bg-white px-2 py-0.5 rounded border border-indigo-200">
-                    {selectedSlot.durationMinutes}m
+                  <span className="px-2 py-0.5 bg-indigo-200/60 rounded font-bold text-[10px]">
+                    {selectedTimezone.split('/')[1]?.replace('_', ' ') || selectedTimezone}
                   </span>
                 </div>
               )}
@@ -708,28 +897,119 @@ export const BookingPage: React.FC<BookingPageProps> = ({ initialToken }) => {
               <button
                 type="submit"
                 disabled={submitting || !selectedSlot}
-                className={`w-full py-3 px-4 rounded-xl font-bold text-xs uppercase tracking-wider flex items-center justify-center space-x-2 transition-all cursor-pointer ${
-                  submitting || !selectedSlot
-                    ? 'bg-slate-200 text-slate-400 cursor-not-allowed'
-                    : 'bg-indigo-600 hover:bg-indigo-700 text-white shadow-md shadow-indigo-600/25 active:scale-[0.99]'
-                }`}
+                className="w-full py-3 px-4 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs uppercase tracking-wider shadow-md shadow-indigo-600/20 transition-all cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center space-x-2"
               >
-                {submitting ? (
-                  <>
-                    <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                    <span>Locking Slot in Database...</span>
-                  </>
-                ) : (
-                  <>
-                    <span>Confirm Meeting Booking</span>
-                    <ArrowRight className="w-4 h-4" />
-                  </>
-                )}
+                <span>{submitting ? 'Confirming...' : 'Confirm Meeting Booking'}</span>
+                <ArrowRight className="w-4 h-4" />
               </button>
             </form>
           </div>
         </div>
       </div>
+
+      {/* Modal: Client Code Selector / Input */}
+      {isClientModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-sm">
+          <div className="bg-white rounded-3xl shadow-2xl border border-slate-200 max-w-md w-full p-6">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+              <div className="flex items-center space-x-2">
+                <Building2 className="w-5 h-5 text-indigo-600" />
+                <h3 className="text-base font-bold text-slate-900">Enter Client Code</h3>
+              </div>
+              <button
+                onClick={() => setIsClientModalOpen(false)}
+                className="p-1.5 rounded-full hover:bg-slate-100 text-slate-400 hover:text-slate-600 cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="mt-4 space-y-4">
+              <p className="text-xs text-slate-500">
+                Enter your numeric or alphanumeric client code (e.g. <strong>1050</strong> or <strong>4020</strong>) to open your dedicated calendar portal:
+              </p>
+
+              {/* Input field */}
+              <div className="flex items-center space-x-2">
+                <input
+                  type="text"
+                  value={clientCodeInput}
+                  onChange={(e) => setClientCodeInput(e.target.value)}
+                  placeholder="e.g. 1050"
+                  className="flex-1 px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm font-mono font-bold focus:bg-white focus:ring-2 focus:ring-indigo-500"
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' && clientCodeInput.trim()) {
+                      window.location.hash = `#/${clientCodeInput.trim()}`;
+                      applyClientCode(clientCodeInput.trim());
+                      setIsClientModalOpen(false);
+                    }
+                  }}
+                />
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (clientCodeInput.trim()) {
+                      window.location.hash = `#/${clientCodeInput.trim()}`;
+                      applyClientCode(clientCodeInput.trim());
+                      setIsClientModalOpen(false);
+                    }
+                  }}
+                  className="px-4 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs rounded-xl shadow-xs cursor-pointer"
+                >
+                  Apply
+                </button>
+              </div>
+
+              {/* Quick Select from Active Client Codes */}
+              {publicClients.length > 0 && (
+                <div className="pt-2">
+                  <p className="text-[11px] font-bold uppercase tracking-wider text-slate-400 mb-2">
+                    Available Client Codes
+                  </p>
+                  <div className="space-y-1.5 max-h-48 overflow-y-auto">
+                    {publicClients.map((c) => (
+                      <button
+                        key={c.clientCode}
+                        type="button"
+                        onClick={() => {
+                          window.location.hash = `#/${c.clientCode}`;
+                          applyClientCode(c.clientCode);
+                          setIsClientModalOpen(false);
+                        }}
+                        className={`w-full text-left p-2.5 rounded-xl border text-xs flex items-center justify-between transition-colors cursor-pointer ${
+                          clientCode === c.clientCode
+                            ? 'bg-indigo-50 border-indigo-300 font-bold text-indigo-900'
+                            : 'bg-slate-50/70 border-slate-200 hover:bg-slate-100'
+                        }`}
+                      >
+                        <div>
+                          <span className="font-mono font-bold text-indigo-600">#{c.clientCode}</span>
+                          <span className="ml-2 text-slate-800">{c.name}</span>
+                        </div>
+                        <span className="text-[10px] text-slate-400 font-mono">
+                          {c.meetingDurationMinutes}m
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Clean, Disruption-Free Footer with Discreet Admin Link */}
+      <footer className="mt-16 pt-8 border-t border-slate-200/80 text-center text-xs text-slate-400 flex flex-col sm:flex-row items-center justify-between gap-3">
+        <p>© 2026 DemandFlow Scheduler • High-Performance Meeting Calendar</p>
+        <a
+          href="/#/admin-login"
+          className="inline-flex items-center space-x-1.5 text-slate-400 hover:text-indigo-600 transition-colors"
+        >
+          <Shield className="w-3.5 h-3.5" />
+          <span>Admin Portal</span>
+        </a>
+      </footer>
     </div>
   );
 };

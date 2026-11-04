@@ -1,6 +1,7 @@
 import React from 'react';
 import {
   LayoutDashboard,
+  Building2,
   Calendar,
   Clock,
   Sliders,
@@ -21,6 +22,7 @@ interface SidebarProps {
 export const Sidebar: React.FC<SidebarProps> = ({ currentView, onNavigate }) => {
   const menuItems = [
     { id: 'admin-dashboard', label: 'Dashboard', icon: LayoutDashboard },
+    { id: 'admin-clients', label: 'Client Codes', icon: Building2 },
     { id: 'admin-calendar', label: 'Calendar Inspector', icon: Calendar },
     { id: 'admin-working-hours', label: 'Working Hours', icon: Clock },
     { id: 'admin-slot-settings', label: 'Slot Settings', icon: Sliders },

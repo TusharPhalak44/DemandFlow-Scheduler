@@ -9,6 +9,7 @@ import { AuthRequest } from '../middlewares/authMiddleware.js';
 import { logActivity } from '../middlewares/auditLogger.js';
 
 const publicBookingSchema = z.object({
+  clientCode: z.string().optional().nullable(),
   agentId: z.number().optional().nullable(),
   bookingLinkId: z.number().optional().nullable(),
   agentName: z.string().min(2, 'Agent name is required'),
@@ -159,6 +160,7 @@ export class BookingController {
       const search = (req.query.search as string)?.trim();
       const status = req.query.status as string;
       const agentId = req.query.agentId ? parseInt(req.query.agentId as string, 10) : undefined;
+      const clientCode = (req.query.clientCode as string)?.trim();
       const timezone = req.query.timezone as string;
       const startDate = req.query.startDate as string;
       const endDate = req.query.endDate as string;
@@ -168,12 +170,17 @@ export class BookingController {
       if (search) {
         where.OR = [
           { bookingReference: { contains: search } },
+          { clientCode: { contains: search } },
           { prospectName: { contains: search } },
           { prospectEmail: { contains: search } },
           { agentName: { contains: search } },
           { agentEmail: { contains: search } },
           { companyName: { contains: search } },
         ];
+      }
+
+      if (clientCode && clientCode !== 'ALL') {
+        where.clientCode = clientCode;
       }
 
       if (status && status !== 'ALL') {

@@ -18,17 +18,19 @@ import { api } from '../../services/api';
 import { useToast } from '../../components/common/Toast';
 import { Badge } from '../../components/common/Badge';
 import { Modal } from '../../components/common/Modal';
-import { Booking, MultiTimezoneFormat } from '../../types';
+import { Booking, MultiTimezoneFormat, ClientProfile } from '../../types';
 
 export const AdminBookingsPage: React.FC = () => {
   const { showToast } = useToast();
   const [bookings, setBookings] = useState<Booking[]>([]);
+  const [clientList, setClientList] = useState<ClientProfile[]>([]);
   const [loading, setLoading] = useState(true);
   const [pagination, setPagination] = useState({ total: 0, page: 1, limit: 15, totalPages: 1 });
 
   // Filters
   const [search, setSearch] = useState('');
   const [status, setStatus] = useState('ALL');
+  const [clientCode, setClientCode] = useState('');
   const [timezone, setTimezone] = useState('');
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
@@ -50,8 +52,14 @@ export const AdminBookingsPage: React.FC = () => {
   const [rescheduling, setRescheduling] = useState(false);
 
   useEffect(() => {
+    api.getAdminClients()
+      .then((res) => setClientList(res.clients || []))
+      .catch(() => setClientList([]));
+  }, []);
+
+  useEffect(() => {
     fetchBookings();
-  }, [pagination.page, status, timezone, startDate, endDate]);
+  }, [pagination.page, status, clientCode, timezone, startDate, endDate]);
 
   async function fetchBookings() {
     setLoading(true);
@@ -61,6 +69,7 @@ export const AdminBookingsPage: React.FC = () => {
         limit: pagination.limit,
         search,
         status: status === 'ALL' ? undefined : status,
+        clientCode: clientCode || undefined,
         timezone: timezone || undefined,
         startDate: startDate || undefined,
         endDate: endDate || undefined,
@@ -305,11 +314,29 @@ export const AdminBookingsPage: React.FC = () => {
             />
           </div>
 
-          {(search || status !== 'ALL' || timezone || startDate || endDate) && (
+          {/* Client Code Filter */}
+          <div className="flex items-center space-x-1.5">
+            <span className="font-semibold text-slate-500">Client:</span>
+            <select
+              value={clientCode}
+              onChange={(e) => setClientCode(e.target.value)}
+              className="text-xs bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5 font-medium outline-none"
+            >
+              <option value="">All Clients</option>
+              {clientList.map((c) => (
+                <option key={c.id} value={c.clientCode}>
+                  #{c.clientCode} - {c.name}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {(search || status !== 'ALL' || clientCode || timezone || startDate || endDate) && (
             <button
               onClick={() => {
                 setSearch('');
                 setStatus('ALL');
+                setClientCode('');
                 setTimezone('');
                 setStartDate('');
                 setEndDate('');
@@ -338,7 +365,7 @@ export const AdminBookingsPage: React.FC = () => {
             <table className="w-full text-left text-xs">
               <thead className="bg-slate-50 text-slate-500 font-bold uppercase tracking-wider border-b border-slate-100">
                 <tr>
-                  <th className="px-5 py-3">Reference</th>
+                  <th className="px-5 py-3">Reference & Client</th>
                   <th className="px-5 py-3">Prospect & Company</th>
                   <th className="px-5 py-3">Agent</th>
                   <th className="px-5 py-3">Scheduled Slot</th>
@@ -350,8 +377,13 @@ export const AdminBookingsPage: React.FC = () => {
               <tbody className="divide-y divide-slate-100">
                 {bookings.map((b) => (
                   <tr key={b.id} className="hover:bg-slate-50/70 transition-colors">
-                    <td className="px-5 py-3.5 font-mono font-bold text-indigo-600">
-                      {b.bookingReference}
+                    <td className="px-5 py-3.5">
+                      <div className="font-mono font-bold text-indigo-600">{b.bookingReference}</div>
+                      {b.clientCode && (
+                        <span className="inline-block mt-1 px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-indigo-50 text-indigo-700 border border-indigo-200">
+                          #{b.clientCode}
+                        </span>
+                      )}
                     </td>
                     <td className="px-5 py-3.5">
                       <p className="font-semibold text-slate-900">{b.prospectName}</p>

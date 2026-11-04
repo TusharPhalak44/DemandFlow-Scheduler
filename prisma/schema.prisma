@@ -22,6 +22,29 @@ model Admin {
   @@map("admins")
 }
 
+model ClientProfile {
+  id                     Int       @id @default(autoincrement())
+  clientCode             String    @unique @map("client_code") @db.VarChar(50)
+  name                   String    @db.VarChar(150)
+  description            String?   @db.VarChar(255)
+  defaultTimezone        String    @default("America/New_York") @map("default_timezone") @db.VarChar(50)
+  meetingDurationMinutes Int       @default(20) @map("meeting_duration_minutes")
+  bufferMinutes          Int       @default(0) @map("buffer_minutes")
+  slotsPerHour           Int       @default(3) @map("slots_per_hour")
+  workingDays            String    @default("1,2,3,4,5") @map("working_days") @db.VarChar(50)
+  startTime              String    @default("09:00") @map("start_time") @db.VarChar(10)
+  endTime                String    @default("17:00") @map("end_time") @db.VarChar(10)
+  autoFederalHolidays    Boolean   @default(true) @map("auto_federal_holidays")
+  customHolidays         String?   @map("custom_holidays") @db.Text
+  isActive               Boolean   @default(true) @map("is_active")
+  createdAt              DateTime  @default(now()) @map("created_at")
+  updatedAt              DateTime  @updatedAt @map("updated_at")
+
+  bookings               Booking[]
+
+  @@map("client_profiles")
+}
+
 model Agent {
   id              Int           @id @default(autoincrement())
   name            String        @db.VarChar(100)
@@ -123,6 +146,8 @@ model CalendarException {
 model Booking {
   id                 Int            @id @default(autoincrement())
   bookingReference   String         @unique @map("booking_reference") @db.VarChar(50)
+  clientCode         String?        @map("client_code") @db.VarChar(50)
+  clientId           Int?           @map("client_id")
   agentId            Int?           @map("agent_id")
   bookingLinkId      Int?           @map("booking_link_id")
   agentName          String         @map("agent_name") @db.VarChar(100)
@@ -141,12 +166,15 @@ model Booking {
   createdAt          DateTime       @default(now()) @map("created_at")
   updatedAt          DateTime       @updatedAt @map("updated_at")
   
+  client             ClientProfile? @relation(fields: [clientId], references: [id], onDelete: SetNull)
   agent              Agent?         @relation(fields: [agentId], references: [id], onDelete: SetNull)
   bookingLink        BookingLink?   @relation(fields: [bookingLinkId], references: [id], onDelete: SetNull)
   rescheduledFrom    Booking?       @relation("RescheduledBookings", fields: [rescheduledFromId], references: [id])
   rescheduledTo      Booking[]      @relation("RescheduledBookings")
   slotAllocation     SlotInventory?
 
+  @@index([clientCode])
+  @@index([clientId])
   @@index([slotStartUtc])
   @@index([status])
   @@index([agentId])

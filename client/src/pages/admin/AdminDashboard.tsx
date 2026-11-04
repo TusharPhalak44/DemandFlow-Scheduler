@@ -9,11 +9,13 @@ import {
   Globe,
   ArrowRight,
   ExternalLink,
+  Building2,
+  CalendarCheck,
 } from 'lucide-react';
 import { api } from '../../services/api';
 import { useToast } from '../../components/common/Toast';
 import { Badge } from '../../components/common/Badge';
-import { Booking } from '../../types';
+import { Booking, ClientProfile } from '../../types';
 
 interface DashboardProps {
   onNavigate: (view: string) => void;
@@ -22,6 +24,7 @@ interface DashboardProps {
 export const AdminDashboard: React.FC<DashboardProps> = ({ onNavigate }) => {
   const { showToast } = useToast();
   const [loading, setLoading] = useState(true);
+  const [clients, setClients] = useState<ClientProfile[]>([]);
   const [data, setData] = useState<{
     metrics: {
       todayBookingsCount: number;
@@ -41,8 +44,12 @@ export const AdminDashboard: React.FC<DashboardProps> = ({ onNavigate }) => {
   useEffect(() => {
     async function loadStats() {
       try {
-        const res = await api.getDashboardStats();
-        setData(res);
+        const [statsRes, clientsRes] = await Promise.all([
+          api.getDashboardStats(),
+          api.getAdminClients().catch(() => ({ clients: [] })),
+        ]);
+        setData(statsRes);
+        setClients(clientsRes.clients || []);
       } catch (err: any) {
         showToast(err.message || 'Failed to load dashboard metrics', 'error');
       } finally {
@@ -233,6 +240,109 @@ export const AdminDashboard: React.FC<DashboardProps> = ({ onNavigate }) => {
             </div>
           )}
         </div>
+      </div>
+
+      {/* Client Code Calendars & Booking Performance */}
+      <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-5">
+          <div className="flex items-center space-x-2.5">
+            <div className="w-8 h-8 rounded-lg bg-indigo-50 border border-indigo-100 flex items-center justify-center text-indigo-600">
+              <Building2 className="w-4 h-4" />
+            </div>
+            <div>
+              <h3 className="text-sm font-bold text-slate-900">Client Code Calendars & Slots</h3>
+              <p className="text-xs text-slate-400">Dedicated booking portals and slot capacity per client</p>
+            </div>
+          </div>
+          <button
+            onClick={() => onNavigate('admin-clients')}
+            className="flex items-center space-x-1.5 px-3 py-1.5 rounded-xl bg-indigo-50 hover:bg-indigo-100 text-indigo-700 font-bold text-xs transition-colors self-start sm:self-auto"
+          >
+            <span>Manage All Clients</span>
+            <ArrowRight className="w-3.5 h-3.5" />
+          </button>
+        </div>
+
+        {clients.length === 0 ? (
+          <div className="text-center py-8 bg-slate-50 rounded-xl border border-dashed border-slate-200">
+            <Building2 className="w-8 h-8 text-slate-300 mx-auto mb-2" />
+            <p className="text-xs text-slate-500 font-medium">No client codes configured yet.</p>
+            <button
+              onClick={() => onNavigate('admin-clients')}
+              className="mt-2 text-xs font-bold text-indigo-600 hover:underline"
+            >
+              + Create Client Code
+            </button>
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            {clients.map((client: ClientProfile) => {
+              const bookedCount = client.totalBookingsCount ?? 0;
+              const directLink = `${window.location.origin}/#/${client.clientCode}`;
+
+              return (
+                <div
+                  key={client.id}
+                  className="p-4 rounded-xl border border-slate-200 hover:border-indigo-300 hover:shadow-sm transition-all bg-white flex flex-col justify-between"
+                >
+                  <div>
+                    <div className="flex items-start justify-between gap-2 mb-2">
+                      <span className="font-mono text-xs font-black px-2.5 py-1 rounded-lg bg-indigo-600 text-white tracking-wide">
+                        #{client.clientCode}
+                      </span>
+                      <span
+                        className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
+                          client.isActive
+                            ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+                            : 'bg-slate-100 text-slate-500'
+                        }`}
+                      >
+                        {client.isActive ? 'Active' : 'Disabled'}
+                      </span>
+                    </div>
+
+                    <h4 className="font-bold text-slate-800 text-sm mb-1">{client.name}</h4>
+                    <p className="text-xs text-slate-400 line-clamp-1 mb-3">
+                      {client.description || 'Dedicated client scheduling calendar'}
+                    </p>
+
+                    <div className="grid grid-cols-2 gap-2 text-[11px] mb-3 p-2.5 rounded-lg bg-slate-50 border border-slate-100">
+                      <div>
+                        <span className="text-slate-400 block">Duration</span>
+                        <span className="font-bold text-slate-700">{client.meetingDurationMinutes}m slot</span>
+                      </div>
+                      <div>
+                        <span className="text-slate-400 block">Total Bookings</span>
+                        <span className="font-bold text-indigo-600">{bookedCount} meetings</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="pt-2 border-t border-slate-100 flex items-center justify-between text-xs">
+                    <a
+                      href={`#/${client.clientCode}`}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="inline-flex items-center space-x-1 font-semibold text-indigo-600 hover:text-indigo-800"
+                    >
+                      <span>Open Portal</span>
+                      <ExternalLink className="w-3 h-3" />
+                    </a>
+                    <button
+                      onClick={() => {
+                        navigator.clipboard.writeText(directLink);
+                        showToast(`Link for #${client.clientCode} copied to clipboard!`, 'info');
+                      }}
+                      className="text-slate-400 hover:text-slate-600 font-medium"
+                    >
+                      Copy Link
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
       </div>
 
       {/* Recent Bookings Table */}
