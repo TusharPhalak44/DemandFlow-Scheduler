@@ -49,39 +49,6 @@ const DEFAULT_TIMEZONES: TimezoneOption[] = [
   { id: 'America/Los_Angeles', label: 'Pacific Time (PT)', abbrStandard: 'PST', abbrDaylight: 'PDT', region: 'Pacific' },
 ];
 
-const BUILTIN_CLIENTS: Record<string, any> = {
-  '1050': {
-    id: 1,
-    clientCode: '1050',
-    name: 'Alpha Corporate Services',
-    description: 'Enterprise B2B scheduling portal for Alpha division',
-    defaultTimezone: 'America/New_York',
-    meetingDurationMinutes: 20,
-    bufferMinutes: 0,
-    slotsPerHour: 3,
-    workingDays: '1,2,3,4,5',
-    startTime: '09:00',
-    endTime: '17:00',
-    autoFederalHolidays: true,
-    isActive: true,
-  },
-  '4020': {
-    id: 2,
-    clientCode: '4020',
-    name: 'Apex Global Solutions',
-    description: 'Priority client direct meeting scheduler (30-min sessions)',
-    defaultTimezone: 'America/Chicago',
-    meetingDurationMinutes: 30,
-    bufferMinutes: 5,
-    slotsPerHour: 2,
-    workingDays: '1,2,3,4,5,6',
-    startTime: '08:30',
-    endTime: '17:30',
-    autoFederalHolidays: true,
-    isActive: true,
-  },
-};
-
 export const BookingPage: React.FC<BookingPageProps> = ({ initialToken }) => {
   const { showToast } = useToast();
 
@@ -179,18 +146,14 @@ export const BookingPage: React.FC<BookingPageProps> = ({ initialToken }) => {
       })
       .catch((e) => console.warn('Using default timezones fallback', e));
 
-    // 3. Fetch active public clients list
+    // 3. Fetch active public clients list from server/admin database
     api.getPublicClients()
       .then((clientsRes) => {
         if (clientsRes.clients && clientsRes.clients.length > 0) {
           setPublicClients(clientsRes.clients);
-        } else {
-          setPublicClients(Object.values(BUILTIN_CLIENTS));
         }
       })
-      .catch(() => {
-        setPublicClients(Object.values(BUILTIN_CLIENTS));
-      });
+      .catch((e) => console.warn('Could not fetch public clients', e));
 
     // Listen to hash changes in browser
     const onHashChange = () => {
@@ -208,17 +171,6 @@ export const BookingPage: React.FC<BookingPageProps> = ({ initialToken }) => {
   const applyClientCode = async (code: string) => {
     const clean = code.trim();
     if (!clean) return;
-
-    // Check built-in fallback first for instant responsive UI
-    if (BUILTIN_CLIENTS[clean]) {
-      const fallback = BUILTIN_CLIENTS[clean];
-      setClientCode(fallback.clientCode);
-      setClientProfile(fallback as ClientProfile);
-      setCompanyName(fallback.name);
-      if (fallback.defaultTimezone) {
-        setSelectedTimezone(fallback.defaultTimezone);
-      }
-    }
 
     try {
       const res = await api.getPublicClientByCode(clean);
@@ -344,7 +296,6 @@ export const BookingPage: React.FC<BookingPageProps> = ({ initialToken }) => {
     const today = DateTime.now().setZone(selectedTimezone);
     setCurrentMonthDt(today.startOf('month'));
     setSelectedDate(today.toFormat('yyyy-MM-dd'));
-    showToast(`Jumped to today: ${today.toFormat('MMMM d, yyyy')}`, 'info');
   };
 
   // Handle Form Change
@@ -540,12 +491,7 @@ export const BookingPage: React.FC<BookingPageProps> = ({ initialToken }) => {
     };
   });
 
-  // Calculate high-level month stats for top bar
   const totalAvailableDays = calendarDays.filter((d) => d.isAvailable).length;
-  const totalOpenSlotsInMonth = calendarDays.reduce(
-    (acc, d) => acc + (d.isAvailable ? d.availableSlotsCount : 0),
-    0
-  );
 
   // If Confirmed, render Confirmation View
   if (confirmedBooking) {
@@ -553,137 +499,74 @@ export const BookingPage: React.FC<BookingPageProps> = ({ initialToken }) => {
     const z = confirmedBooking.formattedInBookedZone;
 
     return (
-      <div className="min-h-screen bg-gradient-to-b from-slate-50 via-indigo-50/25 to-slate-100 py-12 px-4 sm:px-6">
-        <div className="max-w-3xl mx-auto">
-          <div className="bg-white rounded-3xl shadow-2xl border border-slate-200/80 overflow-hidden">
-            {/* Header Banner */}
-            <div className="bg-gradient-to-r from-emerald-600 via-teal-600 to-indigo-600 px-8 py-10 text-white text-center relative overflow-hidden">
-              <div className="inline-flex items-center justify-center w-20 h-20 rounded-full bg-white/20 backdrop-blur-md mb-4 ring-8 ring-white/10 shadow-lg">
-                <CheckCircle2 className="w-12 h-12 text-white" />
-              </div>
-              <h2 className="text-3xl font-black tracking-tight">Meeting Confirmed!</h2>
-              <p className="text-emerald-100 text-sm mt-1 max-w-md mx-auto">
-                Your session is secured in DemandFlow Scheduler and synced across all US timezones.
-              </p>
-              <div className="mt-5 flex flex-wrap items-center justify-center gap-2">
-                <span className="bg-white/20 backdrop-blur-md px-4 py-1.5 rounded-full text-xs font-mono font-bold tracking-wider">
-                  REF: {b.bookingReference}
+      <div className="min-h-screen bg-slate-50 flex items-center justify-center p-4 sm:p-6">
+        <div className="max-w-2xl w-full bg-white rounded-3xl shadow-xl border border-slate-200 overflow-hidden">
+          <div className="bg-gradient-to-r from-emerald-600 to-indigo-600 px-6 py-8 text-white text-center">
+            <div className="inline-flex items-center justify-center w-14 h-14 rounded-full bg-white/20 mb-3 shadow-md">
+              <CheckCircle2 className="w-8 h-8 text-white" />
+            </div>
+            <h2 className="text-2xl font-black">Meeting Confirmed!</h2>
+            <p className="text-emerald-100 text-xs mt-1">
+              Your meeting is locked and calendar notifications have been scheduled.
+            </p>
+            <div className="mt-3 flex items-center justify-center space-x-2">
+              <span className="bg-white/20 px-3 py-1 rounded-full text-xs font-mono font-bold">
+                REF: {b.bookingReference}
+              </span>
+              {b.clientCode && (
+                <span className="bg-white/25 px-3 py-1 rounded-full text-xs font-bold">
+                  Client #{b.clientCode}
                 </span>
-                {b.clientCode && (
-                  <span className="bg-white/25 backdrop-blur-md px-3.5 py-1.5 rounded-full text-xs font-bold flex items-center space-x-1">
-                    <Building2 className="w-3.5 h-3.5" />
-                    <span>Client #{b.clientCode}</span>
-                  </span>
-                )}
+              )}
+            </div>
+          </div>
+
+          <div className="p-6 space-y-4 text-xs">
+            <div className="grid grid-cols-2 gap-3">
+              <div className="p-3.5 rounded-xl bg-indigo-50 border border-indigo-100">
+                <span className="text-[11px] font-bold uppercase text-indigo-900 block">Date & Time</span>
+                <p className="text-sm font-bold text-slate-900 mt-0.5">{z.date}</p>
+                <p className="text-indigo-600 font-extrabold text-base">{z.timeWithZone}</p>
+              </div>
+              <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-200">
+                <span className="text-[11px] font-bold uppercase text-slate-500 block">Session Info</span>
+                <p className="font-semibold text-slate-800 mt-0.5">Agent: {b.agentName}</p>
+                <p className="text-slate-600">Prospect: {b.prospectEmail}</p>
+                <p className="text-slate-600 font-bold">{confirmedBooking.durationMinutes} Minutes</p>
               </div>
             </div>
 
-            <div className="p-8 sm:p-10 space-y-6">
-              {/* Primary Details Grid */}
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div className="p-5 rounded-2xl bg-indigo-50/70 border border-indigo-100">
-                  <span className="text-xs font-bold uppercase tracking-wider text-indigo-900 block">
-                    Selected Meeting Time & Timezone
-                  </span>
-                  <p className="text-lg font-bold text-slate-900 mt-1">{z.date}</p>
-                  <p className="text-indigo-600 font-black text-2xl mt-0.5">{z.timeWithZone}</p>
-                  <span className="inline-block mt-2 text-xs font-semibold px-2.5 py-0.5 rounded-md bg-indigo-100 text-indigo-800">
-                    {b.bookedTimezone}
-                  </span>
-                </div>
+            <div className="grid grid-cols-3 gap-2 pt-2">
+              <button
+                onClick={handleCopySingle}
+                className="py-2.5 px-3 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 font-bold text-slate-700 cursor-pointer shadow-2xs"
+              >
+                Copy Details
+              </button>
+              <button
+                onClick={handleCopyAllTimezones}
+                className="py-2.5 px-3 rounded-xl bg-indigo-50 hover:bg-indigo-100 text-indigo-700 font-bold border border-indigo-200 cursor-pointer shadow-2xs"
+              >
+                Copy 4 Zones
+              </button>
+              <button
+                onClick={handleDownloadIcs}
+                className="py-2.5 px-3 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-bold cursor-pointer shadow-md shadow-indigo-600/20"
+              >
+                Download .ICS
+              </button>
+            </div>
 
-                <div className="p-5 rounded-2xl bg-slate-50 border border-slate-200">
-                  <span className="text-xs font-bold uppercase tracking-wider text-slate-500 block">
-                    Attendees & Session Details
-                  </span>
-                  <div className="mt-2 space-y-1.5 text-sm">
-                    <p className="text-slate-700">
-                      <span className="font-semibold text-slate-900">Agent:</span> {b.agentName}
-                    </p>
-                    <p className="text-slate-700">
-                      <span className="font-semibold text-slate-900">Prospect:</span> {b.prospectEmail}
-                    </p>
-                    <p className="text-slate-700">
-                      <span className="font-semibold text-slate-900">Duration:</span>{' '}
-                      <span className="font-bold text-slate-900">{confirmedBooking.durationMinutes} Minutes</span>
-                    </p>
-                    {b.clientCode && (
-                      <p className="text-slate-700">
-                        <span className="font-semibold text-slate-900">Client Code:</span> #{b.clientCode}
-                      </p>
-                    )}
-                  </div>
-                </div>
-              </div>
-
-              {/* All 4 US Timezones Breakdown */}
-              <div className="p-6 rounded-2xl border border-slate-200 bg-white shadow-xs">
-                <div className="flex items-center justify-between mb-3">
-                  <span className="text-xs font-bold uppercase tracking-wider text-slate-500 block">
-                    Corresponding Times Across All 4 US Regions
-                  </span>
-                  <span className="text-[11px] font-medium text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-md">
-                    Automatic DST Sync
-                  </span>
-                </div>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 text-xs">
-                  {confirmedBooking.allFourTimezones.map((tz) => (
-                    <div
-                      key={tz.zoneId}
-                      className={`p-3 rounded-xl border flex items-center justify-between ${
-                        tz.zoneId === b.bookedTimezone
-                          ? 'bg-indigo-50/80 border-indigo-400 font-bold text-indigo-950 shadow-xs'
-                          : 'bg-slate-50/80 border-slate-200 text-slate-700'
-                      }`}
-                    >
-                      <div className="flex items-center space-x-2">
-                        {tz.zoneId === b.bookedTimezone && (
-                          <span className="w-2 h-2 rounded-full bg-indigo-600 animate-pulse" />
-                        )}
-                        <span>{tz.label}</span>
-                      </div>
-                      <span className="font-mono text-xs font-semibold">{tz.formattedTime}</span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-
-              {/* Action Buttons */}
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-2">
-                <button
-                  onClick={handleCopySingle}
-                  className="flex items-center justify-center space-x-2 px-4 py-3 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 font-bold text-xs uppercase tracking-wider transition-all cursor-pointer shadow-xs"
-                >
-                  <Copy className="w-4 h-4 text-slate-500" />
-                  <span>Copy Time</span>
-                </button>
-                <button
-                  onClick={handleCopyAllTimezones}
-                  className="flex items-center justify-center space-x-2 px-4 py-3 rounded-xl bg-indigo-50 hover:bg-indigo-100 text-indigo-700 font-bold text-xs uppercase tracking-wider border border-indigo-200 transition-all cursor-pointer shadow-xs"
-                >
-                  <Copy className="w-4 h-4 text-indigo-600" />
-                  <span>Copy 4 Zones</span>
-                </button>
-                <button
-                  onClick={handleDownloadIcs}
-                  className="flex items-center justify-center space-x-2 px-4 py-3 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs uppercase tracking-wider shadow-md shadow-indigo-600/25 transition-all cursor-pointer"
-                >
-                  <Download className="w-4 h-4" />
-                  <span>Download .ICS</span>
-                </button>
-              </div>
-
-              <div className="text-center pt-2">
-                <button
-                  onClick={() => {
-                    setConfirmedBooking(null);
-                    setSelectedSlot(null);
-                  }}
-                  className="text-xs font-bold text-indigo-600 hover:text-indigo-800 underline cursor-pointer"
-                >
-                  ← Schedule Another Meeting
-                </button>
-              </div>
+            <div className="text-center pt-2">
+              <button
+                onClick={() => {
+                  setConfirmedBooking(null);
+                  setSelectedSlot(null);
+                }}
+                className="font-bold text-indigo-600 hover:text-indigo-800 underline cursor-pointer"
+              >
+                Schedule Another Meeting
+              </button>
             </div>
           </div>
         </div>
@@ -692,149 +575,178 @@ export const BookingPage: React.FC<BookingPageProps> = ({ initialToken }) => {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-slate-50 via-indigo-50/20 to-slate-100 text-slate-900 py-8 sm:py-12 px-4 sm:px-6 lg:px-8 relative overflow-hidden">
-      {/* Decorative Ambient Background Glows */}
-      <div className="absolute top-0 left-1/2 -translate-x-1/2 w-full max-w-7xl h-96 bg-gradient-to-br from-indigo-200/25 via-cyan-200/20 to-transparent blur-3xl pointer-events-none -z-10" />
-
-      {/* Main Container */}
-      <div className="max-w-7xl mx-auto space-y-10">
-        {/* Redesigned Hero Header Above Calendar */}
-        <div className="text-center max-w-3xl mx-auto">
-          {/* Prominent, Big Brand Logo */}
-          <div className="flex items-center justify-center mb-6">
+    <div className="min-h-screen lg:h-screen lg:max-h-screen lg:overflow-hidden bg-[#f3f6fa] text-slate-900 p-2.5 sm:p-3.5 lg:p-4 flex flex-col justify-between">
+      {/* Container - Sized to fit comfortably on 1 screen */}
+      <div className="max-w-[1600px] mx-auto w-full flex-1 flex flex-col justify-between">
+        {/* Top Header Row (Logo on Left, Title & Client Code on Right - Exact match with user mockup image) */}
+        <header className="flex flex-col md:flex-row items-center justify-between gap-3 pb-2.5 border-b border-slate-200/80 shrink-0">
+          {/* Left: Brand Logo in card with glowing cyan/indigo border + dynamic scheduler badge */}
+          <div className="flex flex-col items-center md:items-start space-y-1 shrink-0">
             <div className="relative group">
-              <div className="absolute -inset-1.5 bg-gradient-to-r from-cyan-400 via-indigo-500 to-purple-600 rounded-3xl blur-md opacity-30 group-hover:opacity-60 transition-opacity" />
-              <div className="relative bg-white/95 backdrop-blur-md px-6 py-4 rounded-3xl shadow-xl shadow-indigo-100/60 border border-slate-200/80 flex items-center justify-center">
+              <div className="absolute -inset-0.5 bg-gradient-to-r from-cyan-400 via-indigo-500 to-purple-500 rounded-2xl blur-[3px] opacity-40 group-hover:opacity-70 transition-opacity" />
+              <div className="relative bg-white px-5 py-1.5 rounded-xl shadow-xs border border-cyan-200/60 flex items-center justify-center">
                 <img
                   src="/logo.png"
                   alt="DemandFlow Scheduler"
-                  className="h-20 sm:h-24 md:h-28 w-auto object-contain transition-transform transform group-hover:scale-105"
+                  className="h-10 sm:h-11 w-auto object-contain"
                   onError={(e) => {
+                    // Fallback to text logo if image not available
                     (e.target as HTMLElement).style.display = 'none';
+                    const parent = (e.target as HTMLElement).parentElement;
+                    if (parent && !parent.querySelector('.fallback-logo')) {
+                      const textLogo = document.createElement('div');
+                      textLogo.className = 'fallback-logo text-center py-0.5';
+                      textLogo.innerHTML = '<span class="font-black text-slate-900 tracking-wider text-base">DEMANDFLOW</span><br/><span class="text-cyan-600 font-bold text-xs">Scheduler</span>';
+                      parent.appendChild(textLogo);
+                    }
                   }}
                 />
               </div>
             </div>
+            <div className="inline-flex items-center space-x-1.5 px-2.5 py-0.5 rounded-full bg-white border border-indigo-200/80 text-indigo-700 text-[10px] font-bold shadow-2xs">
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+              <Sparkles className="w-3 h-3 text-indigo-600" />
+              <span>Real-time Dynamic Scheduler • Multi-Timezone</span>
+            </div>
           </div>
 
-          {/* Live System Badge with status pulse */}
-          <div className="inline-flex items-center space-x-2 px-4 py-1.5 rounded-full bg-white/90 backdrop-blur-sm border border-indigo-200/80 text-indigo-700 text-xs font-bold mb-4 shadow-xs">
-            <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-            <Sparkles className="w-3.5 h-3.5 text-indigo-600" />
-            <span>Real-time Dynamic Scheduler • Multi-Timezone</span>
-          </div>
+          {/* Center / Right: Title, Subtitle, and Admin Client Code Display */}
+          <div className="text-center md:text-right flex-1 max-w-3xl">
+            <h1 className="text-2xl sm:text-3xl lg:text-[32px] font-black text-slate-900 tracking-tight leading-tight">
+              {clientProfile ? clientProfile.name : 'DemandFlow Scheduler'}
+            </h1>
+            <p className="text-slate-500 text-xs sm:text-[13px] mt-0.5">
+              {clientProfile?.description ||
+                (agentInfo
+                  ? `Book your direct session with ${agentInfo.name}. Select your timezone and pick an available slot.`
+                  : 'Select your timezone, pick an available slot, and confirm your meeting instantly.')}
+            </p>
 
-          {/* Dynamic Company / Client Portal Title */}
-          <h1 className="text-3xl sm:text-5xl font-black text-slate-900 tracking-tight leading-tight">
-            {companyName}
-          </h1>
-
-          <p className="text-slate-600 text-sm sm:text-base mt-2 max-w-xl mx-auto font-normal">
-            {clientProfile?.description ||
-              (agentInfo
-                ? `Book your direct session with ${agentInfo.name}. Select your timezone and pick an available time slot.`
-                : 'Select your timezone, pick an available slot, and confirm your meeting instantly.')}
-          </p>
-
-          {/* Client Code Portal Bar / Switcher Pill */}
-          <div className="mt-5 flex flex-wrap items-center justify-center gap-2">
-            {clientCode ? (
-              <div className="inline-flex items-center space-x-2.5 px-4 py-2 rounded-2xl bg-white/95 backdrop-blur-sm border border-indigo-200 text-xs font-semibold text-indigo-950 shadow-sm">
-                <div className="w-6 h-6 rounded-lg bg-indigo-50 flex items-center justify-center text-indigo-600 font-bold">
-                  <Building2 className="w-3.5 h-3.5" />
+            {/* Saved Admin Client Codes & Code Switcher Row */}
+            <div className="mt-2 flex flex-wrap items-center justify-center md:justify-end gap-1.5">
+              {/* If Client Active: Show Client Code Pill with Duration, Working Hours, Copy Link & Switch */}
+              {clientCode ? (
+                <div className="inline-flex items-center space-x-2 px-3 py-1 rounded-full bg-white border border-indigo-300 text-xs font-semibold text-slate-800 shadow-2xs">
+                  <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+                  <span className="font-bold text-indigo-700">Client Code: <strong className="font-mono text-indigo-900 font-extrabold">#{clientCode}</strong></span>
+                  <span className="text-slate-300">•</span>
+                  <span className="text-slate-600 font-medium">{clientProfile?.meetingDurationMinutes || 20}m Slots</span>
+                  {clientProfile?.startTime && clientProfile?.endTime && (
+                    <>
+                      <span className="text-slate-300 hidden sm:inline">•</span>
+                      <span className="text-slate-500 text-[11px] hidden sm:inline">{clientProfile.startTime} - {clientProfile.endTime}</span>
+                    </>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => setIsClientModalOpen(true)}
+                    className="text-indigo-600 hover:text-indigo-800 font-bold underline cursor-pointer ml-1"
+                  >
+                    Switch
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleCopyClientLink}
+                    title="Copy direct booking link for this client"
+                    className="p-1 hover:bg-indigo-50 rounded-md text-indigo-700 transition-colors cursor-pointer"
+                  >
+                    {copiedLink ? <Check className="w-3.5 h-3.5 text-emerald-600" /> : <Copy className="w-3.5 h-3.5" />}
+                  </button>
                 </div>
-                <span>
-                  Client Portal: <strong className="font-mono text-indigo-600 font-bold">#{clientCode}</strong>
-                </span>
-                <span className="text-slate-300">•</span>
-                <span className="font-medium text-slate-600">
-                  {clientProfile?.meetingDurationMinutes || 20}m Meeting Session
-                </span>
-                <span className="text-slate-300">•</span>
+              ) : (
+                /* Pill button matching user attached mockup */
                 <button
                   type="button"
                   onClick={() => setIsClientModalOpen(true)}
-                  className="text-indigo-600 hover:text-indigo-800 font-bold underline cursor-pointer"
+                  className="inline-flex items-center space-x-2 px-4 py-1.5 rounded-full bg-white border border-slate-300 hover:border-indigo-400 hover:bg-indigo-50/40 text-xs font-semibold text-slate-700 shadow-2xs transition-all cursor-pointer"
                 >
-                  Switch Code
+                  <KeyRound className="w-3.5 h-3.5 text-indigo-600" />
+                  <span>Enter Client Code (e.g. 1050, 4020)</span>
+                  <ArrowRight className="w-3.5 h-3.5 text-indigo-500" />
                 </button>
-                <button
-                  type="button"
-                  onClick={handleCopyClientLink}
-                  title="Copy client booking link"
-                  className="p-1 hover:bg-indigo-50 rounded-lg text-indigo-700 transition-colors cursor-pointer"
-                >
-                  {copiedLink ? <Check className="w-3.5 h-3.5 text-emerald-600" /> : <Copy className="w-3.5 h-3.5" />}
-                </button>
-              </div>
-            ) : (
-              <button
-                type="button"
-                onClick={() => setIsClientModalOpen(true)}
-                className="inline-flex items-center space-x-2 px-4 py-2.5 rounded-2xl bg-white/95 backdrop-blur-sm border border-slate-200 hover:border-indigo-300 hover:bg-indigo-50/50 text-xs font-semibold text-slate-700 shadow-sm transition-all cursor-pointer"
-              >
-                <KeyRound className="w-3.5 h-3.5 text-indigo-600" />
-                <span>Enter Client Code (e.g. 1050, 4020)</span>
-                <ArrowRight className="w-3.5 h-3.5 text-indigo-500" />
-              </button>
-            )}
-          </div>
-        </div>
+              )}
 
-        {/* Main Grid: Left Calendar & Timezone, Right Slot & Form */}
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
-          {/* Left Column (Span 7): Timezone & Monthly Calendar */}
-          <div className="lg:col-span-7 space-y-6">
-            {/* Timezone Selection Card */}
-            <div className="bg-white/95 backdrop-blur-sm p-6 rounded-3xl shadow-sm border border-slate-200/90 transition-all hover:shadow-md">
-              <div className="flex items-center justify-between mb-4">
-                <label className="text-xs font-bold uppercase tracking-wider text-slate-600 flex items-center space-x-2">
-                  <Globe className="w-4 h-4 text-indigo-600" />
-                  <span>1. Select Your US Region Timezone</span>
-                </label>
-                <span className="text-[11px] font-semibold text-emerald-700 bg-emerald-50 px-2.5 py-1 rounded-full border border-emerald-200 flex items-center space-x-1">
+              {/* Quick Saved Admin Client Chips */}
+              {publicClients.length > 0 && (
+                <div className="flex items-center space-x-1 pl-1">
+                  <span className="text-[10px] font-bold text-slate-400 uppercase hidden sm:inline">Portals:</span>
+                  {publicClients.map((c) => (
+                    <button
+                      key={c.clientCode}
+                      type="button"
+                      onClick={() => {
+                        window.location.hash = `#/${c.clientCode}`;
+                        applyClientCode(c.clientCode);
+                      }}
+                      className={`px-2 py-0.5 rounded-full text-[11px] font-mono font-bold transition-all cursor-pointer ${
+                        clientCode === c.clientCode
+                          ? 'bg-indigo-600 text-white shadow-xs'
+                          : 'bg-white border border-slate-200 text-slate-600 hover:border-indigo-300 hover:text-indigo-600'
+                      }`}
+                      title={`${c.name} (${c.meetingDurationMinutes}m slots)`}
+                    >
+                      #{c.clientCode}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        </header>
+
+        {/* 3-COLUMN MAIN LAYOUT: EXACT MATCH WITH USER'S ATTACHED SCREENSHOT */}
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-3 lg:gap-4 items-stretch my-2.5 flex-1 min-h-0">
+          {/* COLUMN 1 (Left): Vertical Timezone Strip (Span 2) */}
+          <div className="lg:col-span-2 bg-white p-3 rounded-2xl border border-slate-200 shadow-xs flex flex-col justify-between">
+            <div>
+              {/* Auto DST conversion badge at top */}
+              <div className="text-center mb-2.5">
+                <span className="text-[10px] font-bold text-emerald-700 bg-emerald-50 px-2.5 py-0.5 rounded-full border border-emerald-200 inline-flex items-center space-x-1">
                   <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
                   <span>Auto DST Conversion</span>
                 </span>
               </div>
 
-              {/* 4 US Regions with Live Ticking Clocks */}
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+              {/* Stacked Vertical Timezone Buttons (Pacific, Mountain, Central, Eastern) */}
+              <div className="space-y-1.5">
                 {timezones.map((tz) => {
                   const isSelected = selectedTimezone === tz.id;
                   const liveTime = nowTime.setZone(tz.id).toFormat('hh:mm a');
                   const abbr = tz.currentAbbr || tz.abbrStandard;
+                  const cityName = tz.id.split('/')[1]?.replace('_', ' ');
 
                   return (
                     <button
                       key={tz.id}
                       type="button"
                       onClick={() => setSelectedTimezone(tz.id)}
-                      className={`p-3.5 rounded-2xl border text-left transition-all relative cursor-pointer flex flex-col justify-between ${
+                      className={`w-full p-2 rounded-xl border text-left transition-all relative cursor-pointer ${
                         isSelected
-                          ? 'bg-gradient-to-br from-indigo-50/90 via-white to-indigo-50/50 border-indigo-500 ring-2 ring-indigo-500/30 shadow-md shadow-indigo-100'
-                          : 'bg-white border-slate-200 hover:border-indigo-300 hover:bg-slate-50/70 hover:shadow-xs'
+                          ? 'bg-gradient-to-br from-indigo-50/90 via-white to-indigo-50/50 border-indigo-500 ring-2 ring-indigo-500/20 shadow-xs'
+                          : 'bg-white border-slate-200/90 hover:border-slate-300 hover:bg-slate-50/60'
                       }`}
                     >
-                      <div>
-                        <div className="flex items-center justify-between">
-                          <p className={`text-xs font-extrabold ${isSelected ? 'text-indigo-950' : 'text-slate-800'}`}>
+                      <div className="flex items-start justify-between">
+                        <div>
+                          <p className={`text-xs font-black ${isSelected ? 'text-indigo-950' : 'text-slate-800'}`}>
                             {tz.region}
                           </p>
+                          <p className="text-[10px] text-slate-400 leading-tight">{cityName}</p>
+                        </div>
+                        <div className="flex flex-col items-end">
                           {isSelected ? (
-                            <span className="w-4 h-4 rounded-full bg-indigo-600 text-white flex items-center justify-center">
-                              <Check className="w-2.5 h-2.5" />
+                            <span className="w-4 h-4 rounded-full bg-indigo-600 text-white flex items-center justify-center shadow-xs">
+                              <Check className="w-2.5 h-2.5 stroke-[3]" />
                             </span>
                           ) : (
-                            <span className="text-[10px] font-mono font-bold text-slate-400">{abbr}</span>
+                            <span className="text-[9px] font-mono font-bold text-slate-400">{abbr}</span>
                           )}
                         </div>
-                        <p className="text-[11px] text-slate-500 font-mono mt-0.5">{tz.id.split('/')[1]?.replace('_', ' ')}</p>
                       </div>
 
-                      <div className="mt-3 pt-2 border-t border-slate-100/80 flex items-center justify-between">
-                        <span className="text-[10px] text-slate-400 font-medium">Local:</span>
-                        <span className={`text-xs font-mono font-bold ${isSelected ? 'text-indigo-600' : 'text-slate-700'}`}>
+                      <div className="mt-1.5 pt-1 border-t border-slate-100 flex items-center justify-between text-[10px]">
+                        <span className="text-slate-400">Local:</span>
+                        <span className={`font-mono font-bold ${isSelected ? 'text-indigo-600' : 'text-slate-700'}`}>
                           {liveTime}
                         </span>
                       </div>
@@ -844,35 +756,43 @@ export const BookingPage: React.FC<BookingPageProps> = ({ initialToken }) => {
               </div>
             </div>
 
-            {/* Monthly Calendar Card - THE CORE ELEMENT */}
-            <div className="bg-white/95 backdrop-blur-sm p-6 sm:p-8 rounded-3xl shadow-lg shadow-slate-200/50 border border-slate-200/90 relative">
-              {/* Month Nav Header */}
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6 pb-5 border-b border-slate-100">
+            {/* Bottom Vertical Label matching screenshot */}
+            <div className="mt-2 pt-2 border-t border-slate-100 text-center">
+              <div className="text-[10px] font-extrabold uppercase tracking-wider text-slate-500 flex items-center justify-center space-x-1">
+                <Globe className="w-3 h-3 text-indigo-600" />
+                <span>1. SELECT TIMEZONE</span>
+              </div>
+            </div>
+          </div>
+
+          {/* COLUMN 2 (Center): Monthly Calendar Card (Span 6) */}
+          <div className="lg:col-span-6 bg-white p-3.5 sm:p-4 rounded-2xl border border-slate-200 shadow-xs flex flex-col justify-between">
+            <div>
+              {/* Header */}
+              <div className="flex items-center justify-between mb-2.5 pb-2 border-b border-slate-100">
                 <div>
-                  <div className="flex items-center space-x-2.5">
-                    <CalendarDays className="w-6 h-6 text-indigo-600" />
-                    <h3 className="text-2xl font-black text-slate-900 tracking-tight">
+                  <div className="flex items-center space-x-2">
+                    <CalendarDays className="w-4 h-4 text-indigo-600" />
+                    <h3 className="text-lg sm:text-xl font-black text-slate-900 tracking-tight">
                       {currentMonthDt.toFormat('MMMM yyyy')}
                     </h3>
                     {clientCode && (
-                      <span className="text-xs font-mono font-black px-2.5 py-0.5 bg-indigo-50 text-indigo-700 rounded-lg border border-indigo-200 shadow-2xs">
+                      <span className="text-[11px] font-mono font-bold px-2 py-0.5 bg-indigo-50 text-indigo-700 rounded-md border border-indigo-200">
                         #{clientCode}
                       </span>
                     )}
                   </div>
-                  <p className="text-xs text-slate-500 mt-1 flex items-center space-x-2">
-                    <span>Select an available working day to view time slots</span>
-                    <span className="text-slate-300">•</span>
-                    <span className="font-semibold text-emerald-600">{totalAvailableDays} working days open</span>
+                  <p className="text-[11px] text-slate-500 mt-0.5">
+                    Select an available working day to view time slots • <strong className="text-emerald-600">{totalAvailableDays} working days open</strong>
                   </p>
                 </div>
 
-                {/* Quick Toolbar: Jump to Today + Nav Buttons */}
-                <div className="flex items-center space-x-2 self-start sm:self-auto">
+                {/* Toolbar */}
+                <div className="flex items-center space-x-2">
                   <button
                     type="button"
                     onClick={handleJumpToToday}
-                    className="px-3 py-1.5 rounded-xl border border-slate-200 hover:border-indigo-300 bg-white hover:bg-indigo-50/60 text-xs font-bold text-slate-700 hover:text-indigo-700 transition-all cursor-pointer shadow-2xs"
+                    className="px-2.5 py-1 rounded-xl border border-slate-200 hover:border-indigo-300 text-xs font-bold text-slate-700 hover:bg-slate-50 transition-all cursor-pointer shadow-2xs"
                   >
                     Today
                   </button>
@@ -880,7 +800,6 @@ export const BookingPage: React.FC<BookingPageProps> = ({ initialToken }) => {
                     <button
                       type="button"
                       onClick={prevMonth}
-                      title="Previous Month"
                       className="p-1.5 rounded-lg text-slate-600 hover:bg-white hover:text-slate-900 transition-all cursor-pointer shadow-2xs"
                     >
                       <ChevronLeft className="w-4 h-4" />
@@ -888,7 +807,6 @@ export const BookingPage: React.FC<BookingPageProps> = ({ initialToken }) => {
                     <button
                       type="button"
                       onClick={nextMonth}
-                      title="Next Month"
                       className="p-1.5 rounded-lg text-slate-600 hover:bg-white hover:text-slate-900 transition-all cursor-pointer shadow-2xs"
                     >
                       <ChevronRight className="w-4 h-4" />
@@ -897,13 +815,13 @@ export const BookingPage: React.FC<BookingPageProps> = ({ initialToken }) => {
                 </div>
               </div>
 
-              {/* Weekday Labels */}
-              <div className="grid grid-cols-7 gap-2 mb-3 text-center">
-                {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((d, idx) => (
+              {/* Weekday Row */}
+              <div className="grid grid-cols-7 gap-1.5 mb-2 text-center">
+                {['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT'].map((d, idx) => (
                   <div
                     key={d}
-                    className={`text-[11px] font-black uppercase tracking-wider py-1.5 rounded-lg ${
-                      idx === 0 || idx === 6 ? 'text-slate-400 bg-slate-50/60' : 'text-slate-600 bg-slate-100/60'
+                    className={`text-[10px] font-black tracking-wider py-1 rounded-lg ${
+                      idx === 0 || idx === 6 ? 'text-slate-400 bg-slate-50/70' : 'text-slate-600 bg-slate-100/70'
                     }`}
                   >
                     {d}
@@ -911,14 +829,12 @@ export const BookingPage: React.FC<BookingPageProps> = ({ initialToken }) => {
                 ))}
               </div>
 
-              {/* Robust Calendar Grid: ALWAYS Rendered */}
-              <div className="grid grid-cols-7 gap-2">
-                {/* Leading blanks for start of month alignment */}
+              {/* Day Grid: Perfectly Sized */}
+              <div className="grid grid-cols-7 gap-1.5">
                 {Array.from({ length: leadingBlankDays }).map((_, i) => (
-                  <div key={`blank-${i}`} className="min-h-[72px] sm:min-h-[82px] rounded-2xl bg-slate-50/40 border border-dashed border-slate-100" />
+                  <div key={`blank-${i}`} className="h-14 sm:h-15.5 rounded-xl bg-slate-50/40 border border-dashed border-slate-100" />
                 ))}
 
-                {/* Month Days */}
                 {calendarDays.map((day) => {
                   const isSelected = selectedDate === day.dateStr;
 
@@ -926,40 +842,36 @@ export const BookingPage: React.FC<BookingPageProps> = ({ initialToken }) => {
                   let badge = null;
 
                   if (!day.isWorkingDay || day.isPast) {
-                    // Non-working / Past
                     cellClasses = 'bg-slate-50/60 text-slate-300 border border-slate-100/80 cursor-not-allowed opacity-45 select-none';
-                    badge = <span className="text-[9px] text-slate-400 mt-1 block">Off</span>;
+                    badge = <span className="text-[9px] text-slate-400 block">Off</span>;
                   } else if (day.isHoliday) {
-                    // Holiday
                     cellClasses = 'bg-rose-50/70 border border-rose-200 text-rose-500 cursor-not-allowed';
                     badge = (
-                      <span className="text-[9px] font-bold text-rose-600 truncate max-w-full px-1.5 py-0.5 rounded-full bg-rose-100/80 block mt-1">
+                      <span className="text-[9px] font-bold text-rose-600 truncate max-w-full px-1.5 py-0.2 rounded-full bg-rose-100/80 block">
                         Holiday
                       </span>
                     );
                   } else if (day.isAvailable) {
-                    // Available Day
                     if (isSelected) {
                       cellClasses =
-                        'bg-gradient-to-br from-indigo-600 via-indigo-700 to-indigo-800 text-white font-bold ring-4 ring-indigo-500/25 shadow-xl shadow-indigo-600/30 scale-[1.02] -translate-y-1 z-10';
+                        'bg-gradient-to-br from-indigo-600 via-indigo-700 to-indigo-800 text-white font-bold ring-4 ring-indigo-500/25 shadow-md shadow-indigo-600/30 scale-[1.02] -translate-y-0.5 z-10';
                       badge = (
-                        <span className="text-[10px] font-bold block mt-1 px-2 py-0.5 rounded-full bg-white/20 text-white backdrop-blur-2xs">
+                        <span className="text-[9px] font-bold block px-1.5 py-0.2 rounded-full bg-white/20 text-white">
                           Selected
                         </span>
                       );
                     } else {
                       cellClasses =
-                        'bg-white hover:bg-indigo-50/50 border border-slate-200 text-slate-800 hover:border-indigo-400 hover:shadow-md hover:-translate-y-0.5 cursor-pointer transition-all duration-200';
+                        'bg-white hover:bg-indigo-50/50 border border-slate-200 text-slate-800 hover:border-indigo-400 hover:shadow-xs cursor-pointer transition-all';
                       badge = (
-                        <span className="text-[10px] font-bold block mt-1 px-1.5 sm:px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200">
+                        <span className="text-[9px] font-bold block px-1.5 py-0.2 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200">
                           {day.availableSlotsCount} slots
                         </span>
                       );
                     }
                   } else {
-                    // Fully booked
                     cellClasses = 'bg-slate-50 text-slate-400 border border-slate-200/80 cursor-not-allowed';
-                    badge = <span className="text-[9px] font-medium text-slate-400 block mt-1">Full</span>;
+                    badge = <span className="text-[9px] text-slate-400 block">Full</span>;
                   }
 
                   return (
@@ -968,105 +880,96 @@ export const BookingPage: React.FC<BookingPageProps> = ({ initialToken }) => {
                       type="button"
                       disabled={!day.isAvailable}
                       onClick={() => setSelectedDate(day.dateStr)}
-                      title={
-                        day.holidayName ||
-                        (day.isAvailable
-                          ? `${day.availableSlotsCount} open slots available on ${day.dateStr}`
-                          : 'Unavailable')
-                      }
-                      className={`min-h-[72px] sm:min-h-[82px] rounded-2xl flex flex-col items-center justify-between p-2 relative ${cellClasses}`}
+                      className={`h-14 sm:h-15.5 rounded-xl flex flex-col items-center justify-between p-1.5 relative ${cellClasses}`}
                     >
-                      {/* Day Number and Today Indicator */}
                       <div className="w-full flex items-center justify-between">
-                        <span className={`text-xs sm:text-sm font-extrabold ${isSelected ? 'text-white' : 'text-slate-800'}`}>
+                        <span className={`text-xs font-black ${isSelected ? 'text-white' : 'text-slate-800'}`}>
                           {day.dayNumber}
                         </span>
                         {day.isToday && (
                           <span
-                            className={`text-[8px] font-bold uppercase tracking-wider px-1.5 py-0.2 rounded-full ${
+                            className={`text-[8px] font-bold px-1 rounded ${
                               isSelected ? 'bg-white text-indigo-700' : 'bg-indigo-600 text-white'
                             }`}
                           >
-                            Today
+                            TODAY
                           </span>
                         )}
                       </div>
-
-                      {/* Capacity / Status Badge */}
                       <div className="w-full text-center">{badge}</div>
                     </button>
                   );
                 })}
               </div>
+            </div>
 
-              {/* Calendar Legend */}
-              <div className="flex flex-wrap items-center justify-center gap-4 sm:gap-6 mt-6 pt-5 border-t border-slate-100 text-xs text-slate-600">
-                <div className="flex items-center space-x-2">
-                  <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 ring-2 ring-emerald-200" />
-                  <span className="font-medium">Available Day</span>
-                </div>
-                <div className="flex items-center space-x-2">
-                  <span className="w-2.5 h-2.5 rounded-full bg-indigo-600 ring-2 ring-indigo-200" />
-                  <span className="font-medium">Selected Date</span>
-                </div>
-                <div className="flex items-center space-x-2">
-                  <span className="w-2.5 h-2.5 rounded-full bg-rose-400 ring-2 ring-rose-200" />
-                  <span className="font-medium">Holiday Excluded</span>
-                </div>
-                <div className="flex items-center space-x-2">
-                  <span className="w-2.5 h-2.5 rounded-full bg-slate-300" />
-                  <span className="font-medium">Weekend / Off</span>
-                </div>
+            {/* Calendar Legend */}
+            <div className="flex flex-wrap items-center justify-center gap-4 mt-3 pt-3 border-t border-slate-100 text-xs text-slate-600">
+              <div className="flex items-center space-x-1.5">
+                <span className="w-2.5 h-2.5 rounded-full bg-emerald-500" />
+                <span className="font-medium text-[11px]">Available Day</span>
+              </div>
+              <div className="flex items-center space-x-1.5">
+                <span className="w-2.5 h-2.5 rounded-full bg-indigo-600" />
+                <span className="font-medium text-[11px]">Selected Date</span>
+              </div>
+              <div className="flex items-center space-x-1.5">
+                <span className="w-2.5 h-2.5 rounded-full bg-rose-400" />
+                <span className="font-medium text-[11px]">Holiday Excluded</span>
+              </div>
+              <div className="flex items-center space-x-1.5">
+                <span className="w-2.5 h-2.5 rounded-full bg-slate-300" />
+                <span className="font-medium text-[11px]">Weekend / Off</span>
               </div>
             </div>
           </div>
 
-          {/* Right Column (Span 5): Slots & Simplified Booking Form */}
-          <div className="lg:col-span-5 space-y-6">
-            {/* Slots Picker Card */}
-            <div className="bg-white/95 backdrop-blur-sm p-6 rounded-3xl shadow-sm border border-slate-200/90">
-              <div className="flex items-center justify-between mb-4">
-                <label className="text-xs font-bold uppercase tracking-wider text-slate-600 flex items-center space-x-2">
+          {/* COLUMN 3 (Right): Timeslots & Simplified Confirmation Form (Span 4) */}
+          <div className="lg:col-span-4 flex flex-col justify-between space-y-3.5">
+            {/* Card 1: Available Timeslots */}
+            <div className="bg-white p-4 rounded-3xl border border-slate-200 shadow-sm">
+              <div className="flex items-center justify-between mb-3">
+                <label className="text-xs font-bold uppercase tracking-wider text-slate-600 flex items-center space-x-1.5">
                   <Clock className="w-4 h-4 text-indigo-600" />
                   <span>2. Available Timeslots</span>
                 </label>
                 {selectedDate && (
-                  <span className="text-xs font-extrabold text-indigo-700 bg-indigo-50 px-3 py-1 rounded-full border border-indigo-200">
+                  <span className="text-xs font-black text-indigo-700 bg-indigo-50 px-2.5 py-0.5 rounded-full border border-indigo-200">
                     {DateTime.fromISO(selectedDate).toFormat('EEE, MMM d')}
                   </span>
                 )}
               </div>
 
               {!selectedDate ? (
-                <div className="py-12 px-6 text-center border-2 border-dashed border-slate-200 rounded-2xl bg-slate-50/50">
-                  <div className="w-12 h-12 rounded-2xl bg-indigo-50 border border-indigo-100 flex items-center justify-center text-indigo-600 mx-auto mb-3 shadow-2xs">
-                    <CalendarIcon className="w-6 h-6" />
+                <div className="py-8 px-4 text-center border-2 border-dashed border-slate-200 rounded-2xl bg-slate-50/50">
+                  <div className="w-10 h-10 rounded-xl bg-indigo-50 border border-indigo-100 flex items-center justify-center text-indigo-600 mx-auto mb-2 shadow-2xs">
+                    <CalendarIcon className="w-5 h-5" />
                   </div>
-                  <p className="text-sm font-bold text-slate-800">Select a date from the calendar</p>
-                  <p className="text-xs text-slate-500 mt-1 max-w-xs mx-auto">
+                  <p className="text-xs font-bold text-slate-800">Select a date from the calendar</p>
+                  <p className="text-[11px] text-slate-400 mt-0.5">
                     Time slots will calculate in{' '}
-                    <strong className="text-slate-800">{selectedTimezone.split('/')[1]?.replace('_', ' ')}</strong> with instant conflict checks.
+                    <strong className="text-slate-700">{selectedTimezone.split('/')[1]?.replace('_', ' ')}</strong> with instant conflict checks.
                   </p>
                 </div>
               ) : loadingSlots ? (
-                <div className="py-12 text-center">
-                  <div className="w-8 h-8 border-3 border-indigo-600 border-t-transparent rounded-full animate-spin mx-auto mb-3" />
-                  <p className="text-xs font-semibold text-slate-600">Calculating real-time slots...</p>
+                <div className="py-8 text-center">
+                  <div className="w-6 h-6 border-2 border-indigo-600 border-t-transparent rounded-full animate-spin mx-auto mb-2" />
+                  <p className="text-xs text-slate-500">Calculating real-time slots...</p>
                 </div>
               ) : availableSlots.length === 0 ? (
-                <div className="py-12 px-6 text-center bg-slate-50 rounded-2xl border border-slate-200/80">
-                  <AlertCircle className="w-8 h-8 text-amber-500 mx-auto mb-2" />
-                  <p className="text-sm font-bold text-slate-800">No open slots on this date</p>
-                  <p className="text-xs text-slate-500 mt-1">Please pick another highlighted day in the calendar.</p>
+                <div className="py-8 px-4 text-center bg-slate-50 rounded-2xl border border-slate-200">
+                  <AlertCircle className="w-6 h-6 text-amber-500 mx-auto mb-1" />
+                  <p className="text-xs font-bold text-slate-800">No open slots on this date</p>
+                  <p className="text-[11px] text-slate-400 mt-0.5">Please pick another highlighted day.</p>
                 </div>
               ) : (
                 <div>
-                  {/* Time of Day Filter Segment (All / Morning / Afternoon) */}
-                  <div className="flex items-center bg-slate-100 p-1 rounded-xl mb-3 text-xs font-semibold">
+                  {/* Segmented Filter */}
+                  <div className="flex items-center bg-slate-100 p-1 rounded-xl mb-2.5 text-[11px] font-semibold">
                     <button
                       type="button"
                       onClick={() => setTimeOfDayFilter('ALL')}
-                      className={`flex-1 py-1.5 rounded-lg transition-all cursor-pointer ${
+                      className={`flex-1 py-1 rounded-lg transition-all cursor-pointer ${
                         timeOfDayFilter === 'ALL'
                           ? 'bg-white text-indigo-950 font-bold shadow-2xs'
                           : 'text-slate-500 hover:text-slate-800'
@@ -1077,31 +980,31 @@ export const BookingPage: React.FC<BookingPageProps> = ({ initialToken }) => {
                     <button
                       type="button"
                       onClick={() => setTimeOfDayFilter('MORNING')}
-                      className={`flex-1 py-1.5 rounded-lg transition-all cursor-pointer flex items-center justify-center space-x-1 ${
+                      className={`flex-1 py-1 rounded-lg transition-all cursor-pointer flex items-center justify-center space-x-1 ${
                         timeOfDayFilter === 'MORNING'
                           ? 'bg-white text-indigo-950 font-bold shadow-2xs'
                           : 'text-slate-500 hover:text-slate-800'
                       }`}
                     >
-                      <Sun className="w-3.5 h-3.5 text-amber-500" />
+                      <Sun className="w-3 h-3 text-amber-500" />
                       <span>Morning ({morningSlots.length})</span>
                     </button>
                     <button
                       type="button"
                       onClick={() => setTimeOfDayFilter('AFTERNOON')}
-                      className={`flex-1 py-1.5 rounded-lg transition-all cursor-pointer flex items-center justify-center space-x-1 ${
+                      className={`flex-1 py-1 rounded-lg transition-all cursor-pointer flex items-center justify-center space-x-1 ${
                         timeOfDayFilter === 'AFTERNOON'
                           ? 'bg-white text-indigo-950 font-bold shadow-2xs'
                           : 'text-slate-500 hover:text-slate-800'
                       }`}
                     >
-                      <Sunset className="w-3.5 h-3.5 text-indigo-500" />
+                      <Sunset className="w-3 h-3 text-indigo-500" />
                       <span>Afternoon ({afternoonSlots.length})</span>
                     </button>
                   </div>
 
-                  {/* Slots Grid */}
-                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5 max-h-64 overflow-y-auto pr-1">
+                  {/* Slot Grid */}
+                  <div className="grid grid-cols-3 gap-2 max-h-40 overflow-y-auto pr-1">
                     {displayedSlots.map((slot) => {
                       const isSelected = selectedSlot?.slotStartUtc === slot.slotStartUtc;
                       return (
@@ -1109,14 +1012,14 @@ export const BookingPage: React.FC<BookingPageProps> = ({ initialToken }) => {
                           key={slot.slotStartUtc}
                           type="button"
                           onClick={() => setSelectedSlot(slot)}
-                          className={`p-3 rounded-2xl border text-center transition-all cursor-pointer ${
+                          className={`p-2 rounded-xl border text-center transition-all cursor-pointer ${
                             isSelected
-                              ? 'bg-gradient-to-r from-indigo-600 to-indigo-700 text-white font-extrabold border-indigo-600 shadow-md shadow-indigo-600/25 ring-2 ring-indigo-500/20 scale-[1.02]'
+                              ? 'bg-gradient-to-r from-indigo-600 to-indigo-700 text-white font-black border-indigo-600 shadow-sm shadow-indigo-600/25 ring-2 ring-indigo-500/20'
                               : 'bg-white hover:bg-indigo-50/60 border-slate-200 text-slate-700 hover:border-indigo-400'
                           }`}
                         >
-                          <p className="text-xs sm:text-sm font-bold">{slot.displayTime}</p>
-                          <p className={`text-[10px] mt-0.5 ${isSelected ? 'text-indigo-100' : 'text-slate-400'}`}>
+                          <p className="text-xs font-bold">{slot.displayTime}</p>
+                          <p className={`text-[9px] mt-0.2 ${isSelected ? 'text-indigo-100' : 'text-slate-400'}`}>
                             {slot.durationMinutes} min
                           </p>
                         </button>
@@ -1127,34 +1030,33 @@ export const BookingPage: React.FC<BookingPageProps> = ({ initialToken }) => {
               )}
             </div>
 
-            {/* Simplified Booking Form: ONLY Agent Name and Prospect Email */}
+            {/* Card 2: Confirm Meeting Details */}
             <div
-              className={`p-6 sm:p-7 rounded-3xl shadow-sm border transition-all ${
+              className={`p-4 rounded-3xl border transition-all ${
                 selectedSlot
-                  ? 'bg-white/95 border-indigo-400 ring-4 ring-indigo-500/10 shadow-lg shadow-indigo-100'
-                  : 'bg-white/90 border-slate-200/90'
+                  ? 'bg-white border-indigo-400 ring-4 ring-indigo-500/10 shadow-sm'
+                  : 'bg-white border-slate-200'
               }`}
             >
-              <div className="flex items-center justify-between mb-4 pb-3 border-b border-slate-100">
-                <h3 className="text-sm font-black uppercase tracking-wider text-slate-900 flex items-center space-x-2">
+              <div className="flex items-center justify-between mb-3 pb-2 border-b border-slate-100">
+                <h3 className="text-xs font-black uppercase tracking-wider text-slate-900 flex items-center space-x-1.5">
                   <User className="w-4 h-4 text-indigo-600" />
                   <span>3. Confirm Meeting Details</span>
                 </h3>
                 {selectedSlot && (
-                  <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200">
+                  <span className="text-[9px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200">
                     Slot Locked
                   </span>
                 )}
               </div>
 
-              <form onSubmit={handleSubmitBooking} className="space-y-4">
-                {/* Agent Name */}
+              <form onSubmit={handleSubmitBooking} className="space-y-3">
                 <div>
-                  <label className="text-xs font-bold text-slate-700 block mb-1">
+                  <label className="text-[11px] font-bold text-slate-700 block mb-0.5">
                     Agent Name <span className="text-rose-500">*</span>
                   </label>
                   <div className="relative">
-                    <User className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
+                    <User className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
                     <input
                       type="text"
                       required
@@ -1162,18 +1064,17 @@ export const BookingPage: React.FC<BookingPageProps> = ({ initialToken }) => {
                       value={formData.agentName}
                       onChange={handleChange}
                       placeholder="e.g. Sarah Jenkins"
-                      className="w-full pl-10 pr-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm font-medium focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:bg-white transition-all"
+                      className="w-full pl-9 pr-3 py-1.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-medium focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:bg-white"
                     />
                   </div>
                 </div>
 
-                {/* Prospect Email */}
                 <div>
-                  <label className="text-xs font-bold text-slate-700 block mb-1">
+                  <label className="text-[11px] font-bold text-slate-700 block mb-0.5">
                     Prospect Email <span className="text-rose-500">*</span>
                   </label>
                   <div className="relative">
-                    <Mail className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
+                    <Mail className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
                     <input
                       type="email"
                       required
@@ -1181,35 +1082,33 @@ export const BookingPage: React.FC<BookingPageProps> = ({ initialToken }) => {
                       value={formData.prospectEmail}
                       onChange={handleChange}
                       placeholder="prospect@company.com"
-                      className="w-full pl-10 pr-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm font-medium focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:bg-white transition-all"
+                      className="w-full pl-9 pr-3 py-1.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-medium focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:bg-white"
                     />
                   </div>
                 </div>
 
-                {/* Selected Slot Summary Card */}
                 {selectedSlot && (
-                  <div className="p-4 bg-indigo-50/80 rounded-2xl border border-indigo-200 text-xs text-indigo-950 flex items-center justify-between">
+                  <div className="p-2.5 bg-indigo-50/80 rounded-xl border border-indigo-200 text-xs text-indigo-950 flex items-center justify-between">
                     <div>
-                      <span className="font-extrabold block text-indigo-900">Selected Appointment:</span>
-                      <span className="font-medium">
-                        {DateTime.fromISO(selectedDate!).toFormat('EEEE, MMM d')} at{' '}
+                      <span className="font-black text-[11px] block text-indigo-900">Selected Appointment:</span>
+                      <span className="text-[11px]">
+                        {DateTime.fromISO(selectedDate!).toFormat('EEE, MMM d')} at{' '}
                         <strong className="text-indigo-600 font-bold">{selectedSlot.displayTime}</strong>
                       </span>
                     </div>
-                    <span className="px-2.5 py-1 bg-white rounded-lg font-bold text-[10px] text-indigo-700 border border-indigo-200 shadow-2xs">
+                    <span className="px-2 py-0.5 bg-white rounded-md font-bold text-[10px] text-indigo-700 border border-indigo-200 shadow-2xs">
                       {selectedTimezone.split('/')[1]?.replace('_', ' ')}
                     </span>
                   </div>
                 )}
 
-                {/* Submit Button */}
                 <button
                   type="submit"
                   disabled={submitting || !selectedSlot}
-                  className="w-full py-3.5 px-5 rounded-2xl bg-gradient-to-r from-indigo-600 via-indigo-700 to-purple-600 hover:from-indigo-700 hover:to-purple-700 text-white font-extrabold text-xs uppercase tracking-wider shadow-lg shadow-indigo-600/30 transition-all cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center space-x-2"
+                  className="w-full py-2.5 px-4 rounded-xl bg-gradient-to-r from-indigo-600 via-indigo-700 to-purple-600 hover:from-indigo-700 hover:to-purple-700 text-white font-black text-xs uppercase tracking-wider shadow-md shadow-indigo-600/25 transition-all cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center space-x-1.5"
                 >
-                  <span>{submitting ? 'Confirming Appointment...' : 'Confirm Meeting Booking'}</span>
-                  <ArrowRight className="w-4 h-4" />
+                  <span>{submitting ? 'Confirming...' : 'Confirm Meeting Booking'}</span>
+                  <ArrowRight className="w-3.5 h-3.5" />
                 </button>
               </form>
             </div>
@@ -1219,15 +1118,15 @@ export const BookingPage: React.FC<BookingPageProps> = ({ initialToken }) => {
         {/* Modal: Client Code Selector / Input */}
         {isClientModalOpen && (
           <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-in fade-in duration-200">
-            <div className="bg-white rounded-3xl shadow-2xl border border-slate-200 max-w-md w-full p-6 sm:p-7">
-              <div className="flex items-center justify-between pb-4 border-b border-slate-100">
-                <div className="flex items-center space-x-2.5">
+            <div className="bg-white rounded-3xl shadow-2xl border border-slate-200 max-w-md w-full p-6">
+              <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+                <div className="flex items-center space-x-2">
                   <div className="w-8 h-8 rounded-xl bg-indigo-50 border border-indigo-100 flex items-center justify-center text-indigo-600">
                     <Building2 className="w-4 h-4" />
                   </div>
                   <div>
-                    <h3 className="text-base font-extrabold text-slate-900">Switch Client Portal</h3>
-                    <p className="text-[11px] text-slate-400">Enter client code or pick from active portals</p>
+                    <h3 className="text-base font-extrabold text-slate-900">Select Client Portal</h3>
+                    <p className="text-[11px] text-slate-400">Enter client code or pick from active clients</p>
                   </div>
                 </div>
                 <button
@@ -1238,19 +1137,18 @@ export const BookingPage: React.FC<BookingPageProps> = ({ initialToken }) => {
                 </button>
               </div>
 
-              <div className="mt-5 space-y-4">
+              <div className="mt-4 space-y-3.5">
                 <p className="text-xs text-slate-600">
-                  Enter your client code (e.g. <strong>1050</strong> or <strong>4020</strong>) to open your dedicated scheduling calendar:
+                  Enter your client code (e.g. <strong>1050</strong> or <strong>4020</strong>):
                 </p>
 
-                {/* Input field */}
                 <div className="flex items-center space-x-2">
                   <input
                     type="text"
                     value={clientCodeInput}
                     onChange={(e) => setClientCodeInput(e.target.value)}
                     placeholder="e.g. 1050"
-                    className="flex-1 px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm font-mono font-bold focus:bg-white focus:ring-2 focus:ring-indigo-500 outline-none"
+                    className="flex-1 px-3.5 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm font-mono font-bold focus:bg-white focus:ring-2 focus:ring-indigo-500 outline-none"
                     onKeyDown={(e) => {
                       if (e.key === 'Enter' && clientCodeInput.trim()) {
                         window.location.hash = `#/${clientCodeInput.trim()}`;
@@ -1268,19 +1166,18 @@ export const BookingPage: React.FC<BookingPageProps> = ({ initialToken }) => {
                         setIsClientModalOpen(false);
                       }
                     }}
-                    className="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white font-extrabold text-xs rounded-xl shadow-xs cursor-pointer transition-colors"
+                    className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-black text-xs rounded-xl shadow-xs cursor-pointer"
                   >
                     Apply
                   </button>
                 </div>
 
-                {/* Quick Select from Active Client Codes */}
                 {publicClients.length > 0 && (
                   <div className="pt-2">
-                    <p className="text-[11px] font-bold uppercase tracking-wider text-slate-400 mb-2">
-                      Active Client Portals
+                    <p className="text-[10px] font-black uppercase tracking-wider text-slate-400 mb-2">
+                      Active Portals ({publicClients.length})
                     </p>
-                    <div className="space-y-2 max-h-52 overflow-y-auto pr-1">
+                    <div className="space-y-1.5 max-h-48 overflow-y-auto pr-1">
                       {publicClients.map((c) => (
                         <button
                           key={c.clientCode}
@@ -1290,18 +1187,15 @@ export const BookingPage: React.FC<BookingPageProps> = ({ initialToken }) => {
                             applyClientCode(c.clientCode);
                             setIsClientModalOpen(false);
                           }}
-                          className={`w-full text-left p-3 rounded-2xl border text-xs flex items-center justify-between transition-all cursor-pointer ${
+                          className={`w-full text-left p-2.5 rounded-xl border text-xs flex items-center justify-between transition-all cursor-pointer ${
                             clientCode === c.clientCode
-                              ? 'bg-indigo-50 border-indigo-400 font-bold text-indigo-950 ring-2 ring-indigo-500/20 shadow-xs'
+                              ? 'bg-indigo-50 border-indigo-400 font-bold text-indigo-950 ring-2 ring-indigo-500/20'
                               : 'bg-white border-slate-200 hover:border-indigo-200 hover:bg-slate-50'
                           }`}
                         >
                           <div>
-                            <div className="flex items-center space-x-2">
-                              <span className="font-mono font-extrabold text-indigo-600 text-xs">#{c.clientCode}</span>
-                              <span className="font-bold text-slate-800">{c.name}</span>
-                            </div>
-                            <p className="text-[11px] text-slate-400 mt-0.5 line-clamp-1">{c.description || 'Enterprise scheduler'}</p>
+                            <span className="font-mono font-extrabold text-indigo-600">#{c.clientCode}</span>
+                            <span className="font-bold text-slate-800 ml-2">{c.name}</span>
                           </div>
                           <span className="px-2 py-0.5 rounded-md bg-slate-100 text-slate-600 text-[10px] font-mono font-bold">
                             {c.meetingDurationMinutes}m
@@ -1316,14 +1210,14 @@ export const BookingPage: React.FC<BookingPageProps> = ({ initialToken }) => {
           </div>
         )}
 
-        {/* Clean, Disruption-Free Footer with Discreet Admin Link */}
-        <footer className="pt-8 border-t border-slate-200/80 text-center text-xs text-slate-500 flex flex-col sm:flex-row items-center justify-between gap-3">
+        {/* Compact Footer */}
+        <footer className="pt-2 border-t border-slate-200/60 text-center text-[11px] text-slate-400 flex flex-col sm:flex-row items-center justify-between gap-2">
           <p>© 2026 DemandFlow Scheduler • High-Performance Multi-Client Meeting Calendar</p>
           <a
             href="/#/admin-login"
-            className="inline-flex items-center space-x-1.5 text-slate-400 hover:text-indigo-600 transition-colors font-medium"
+            className="inline-flex items-center space-x-1 text-slate-400 hover:text-indigo-600 transition-colors"
           >
-            <Shield className="w-3.5 h-3.5" />
+            <Shield className="w-3 h-3" />
             <span>Admin Portal</span>
           </a>
         </footer>
